@@ -42,6 +42,7 @@ func generateToken(creds LoginCredentials) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
 	return tokenString, nil
 }
 
@@ -51,11 +52,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(404), 404)
 		return
 	}
+
 	token, err := generateToken(creds)
 	if err != nil {
 		http.Error(w, http.StatusText(404), 404)
 		return
 	}
+
 	ctx := context.WithValue(r.Context(), tokenKey, token)
 	token, ok := ctx.Value(tokenKey).(string)
 	if !ok {
@@ -63,5 +66,6 @@ func Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(status), status)
 		return
 	}
+	
 	render.JSON(w, r, map[string]string{"token": token})
 }
