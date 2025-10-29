@@ -10,9 +10,10 @@ data "external_schema" "gorm" {
   ]
 }
 
-env "gorm" {
+env "dev" {
   src = data.external_schema.gorm.url
-  dev = "postgres://blockchain-db:password@localhost:5432/db?sslmode=disable"
+  dev = "docker://postgres/18/dev?search_path=public"
+  url = "postgres://blockchain-db:password@localhost:5432/db?search_path=public&sslmode=disable"
   migration {
     dir = "file://db/migrations"
   }

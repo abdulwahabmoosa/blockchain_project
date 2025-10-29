@@ -26,6 +26,6 @@ func NewDatabase() (db *Database, err error) {
 	return
 }
 
-func (db *Database) GetUserById(id uint) (models.User, error) {
+func (db *Database) GetUserById(id int) (models.User, error) {
 	return gorm.G[models.User](db.db).Where("id = ?", id).First(db.ctx)
 }
