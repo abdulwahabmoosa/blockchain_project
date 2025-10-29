@@ -2,14 +2,25 @@ package main
 
 import (
 	"backend/auth"
+	"backend/db"
+	"fmt"
 	"net/http"
 
+	_ "ariga.io/atlas-provider-gorm/gormschema"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/render"
 )
 
 func main() {
+	_, err := db.NewDatabase()
+
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("db connection successful")
+
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
