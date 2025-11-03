@@ -1,6 +1,7 @@
 import "../index.css";
 import { Text } from "../Components/atoms/text";
 import { Button } from "../Components/atoms/Button";
+import { Logo } from "../Components/atoms/Logo";
 
 function LandingPage() {
   return (
@@ -29,6 +30,13 @@ function LandingPage() {
         <Button variant="danger" rounding="lg" className="mt-4">
           Delete Account
         </Button>
+      </div>
+
+      <div className="flex gap-6 items-center justify-center mt-10">
+        {/* 1️⃣ src provided → renders <img> */}
+        <Logo src="/images/oceanic-logo.svg" size="lg" />
+        <Logo size="md" />
+        <Logo size="sm" />
       </div>
 
       <div className="flex flex-col gap-4 p-6"></div>
