@@ -43,9 +43,9 @@ export const Button: React.FC<ButtonProps> = ({
 
   const roundingClasses = {
     none: "rounded-none",
-    sm: "rounded-sm",
-    md: "rounded-md",
-    lg: "rounded-lg",
+    sm: "rounded-md",
+    md: "rounded-xl",
+    lg: "rounded-3xl",
     full: "rounded-full",
   };
 
