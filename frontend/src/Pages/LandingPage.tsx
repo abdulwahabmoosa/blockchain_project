@@ -5,14 +5,18 @@ import { Logo } from "../Components/atoms/Logo";
 import { NavLink } from "../Components/molecules/NavLink";
 
 function LandingPage() {
+  const navLinks = [
+    { label: "Home", href: "/" },
+    { label: "About", href: "/about" },
+    { label: "Services", href: "/services" },
+    { label: "Contact", href: "/contact" },
+  ];
+
   return (
     <div className="flex h-screen w-screen items-center justify-center">
       <div className="text-center space-y-4">
         <nav className="flex gap-6 bg-blue-900 text-white px-6 py-2 rounded">
-          <NavLink href="/" label="Home" isActive />
-          <NavLink href="/about" label="About" />
-          <NavLink href="/pricing" label="Pricing" />
-          <NavLink href="/contact" label="Contact" />
+          <NavLink links={navLinks} />
         </nav>
 
         <Text as="p" size="lg" className="text-9xl text-gray-900">
