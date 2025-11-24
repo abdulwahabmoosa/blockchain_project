@@ -1,0 +1,33 @@
+{
+  "name": "blockchain_project",
+  "version": "1.0.0",
+  "description": "Create a fullstack ready to deploy application with a blockchain solution",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "dev": "hardhat node"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdulwahabmoosa/blockchain_project.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/abdulwahabmoosa/blockchain_project/issues"
+  },
+  "homepage": "https://github.com/abdulwahabmoosa/blockchain_project#readme",
+  "devDependencies": {
+    "hardhat": "^2.26.0"
+  },
+  "dependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@nomiclabs/hardhat-waffle": "^2.0.6",
+    "@openzeppelin/contracts": "^4.9.3",
+    "chai": "^6.2.1",
+    "ethereum-waffle": "^4.0.10",
+    "ethers": "^5.8.0"
+  }
+}
