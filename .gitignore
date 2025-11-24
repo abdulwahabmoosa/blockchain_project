@@ -1,0 +1,59 @@
+node_modules
+.env
+
+# Hardhat files
+/cache
+/artifacts
+
+# TypeChain files
+/typechain
+/typechain-types
+
+# solidity-coverage files
+/coverage
+/coverage.json
+
+# Hardhat Ignition default folder for deployments against a local node
+ignition/deployments/chain-31337
+
+# Node modules
+node_modules/
+
+# Hardhat build artifacts
+artifacts/
+cache/
+
+# Dotenv environment variables
+.env
+.env.local
+.env.*.local
+
+# VS Code settings
+.vscode/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Hardhat temporary files
+typechain/
+coverage/
+coverage.json
+coverage-final.json
+
+# Optional: ignore compiled ABI outputs if exporting
+abis/
+
+# Optional: ignore lock files if using Yarn/Pnpm
+# yarn.lock
+# pnpm-lock.yaml
+
+# Optional: Ignore frontend or backend build dirs if you add them later
+dist/
+build/
