@@ -31,7 +31,7 @@ contract PropertyAsset is ERC721, AccessControl {
         propertyDataHash = _dataHash;
         valuation = _valuation;
         status = Status.Active;
-        _setupRole(MANAGER_ROLE, manager);
+        _grantRole(MANAGER_ROLE, manager);
         _mint(owner_, assetId);
     }
 
@@ -52,5 +52,14 @@ contract PropertyAsset is ERC721, AccessControl {
 
     function getStatus() external view returns (Status) {
         return status;
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721, AccessControl)
+        returns (bool)
+    {
+        return super.supportsInterface(interfaceId);
     }
 }

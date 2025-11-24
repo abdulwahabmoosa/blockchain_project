@@ -14,7 +14,7 @@ interface IApprovalService {
     function isApproved(address user) external view returns (bool);
 }
 
-contract PropertyToken is ERC20Snapshot, AccessControl, Pausable {
+contract PropertyToken is ERC20,ERC20Snapshot, AccessControl, Pausable {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant SNAPSHOT_ROLE = keccak256("SNAPSHOT_ROLE");
 
@@ -61,7 +61,8 @@ contract PropertyToken is ERC20Snapshot, AccessControl, Pausable {
     }
 
     function _beforeTokenTransfer(address from, address to, uint256 amount)
-        internal override(ERC20, ERC20Snapshot)
+        internal 
+        override(ERC20,ERC20Snapshot)
     {
         super._beforeTokenTransfer(from, to, amount);
         require(!paused(), "PT: token paused");
