@@ -3,10 +3,9 @@ package api
 import (
 	"backend/auth"
 	"backend/db"
-	"backend/db/models"
 	"context"
+	"encoding/json"
 	"net/http"
-	"strconv"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -31,48 +30,65 @@ func (handler *RequestHandler) Start() {
 		w.Write([]byte("pong"))
 	})
 
-	r.Route("/users", func(r chi.Router) {
-		r.Route("/{id}", func(r chi.Router) {
-			r.Use(handler.UserCtx)
-			r.Get("/", GetUser)
-			// r.Put("/", UpdateUser)
-			// r.Delete("/", DeleteUser)
-		})
-	})
+	r.Post("/login", handler.Login)
+	r.Post("/register", handler.RegisterUser)
 
-	r.Post("/login", auth.Login)
+	r.Group(func(r chi.Router) {
+		r.Use(auth.Middleware)
+	})
 
 	http.ListenAndServe(":3000", r)
 }
 
-func (handler *RequestHandler) UserCtx(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id, err := strconv.Atoi(chi.URLParam(r, "id"))
-		if err != nil {
-			http.Error(w, http.StatusText(404), 404)
-			return
-		}
+func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var creds auth.LoginCredentials
+	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		http.Error(w, "Invalid Request", http.StatusBadRequest)
+		return
+	}
 
-		user, err := handler.db.GetUserById(id)
-		if err != nil {
-			http.Error(w, http.StatusText(404), 404)
-			return
-		}
+	user, err := handler.db.GetUserByCredentials(creds)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
 
-		ctx := context.WithValue(r.Context(), "users", user)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
+	token, err := auth.GenerateToken(user.ID, user.Email)
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+		return
+	}
 
-func GetUser(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	user, ok := ctx.Value("users").(models.User)
+	ctx := context.WithValue(r.Context(), auth.TokenKey, token)
+	token, ok := ctx.Value(auth.TokenKey).(string)
 	if !ok {
 		status := http.StatusUnprocessableEntity
 		http.Error(w, http.StatusText(status), status)
 		return
 	}
 
-	render.JSON(w, r, user)
+	render.JSON(w, r, map[string]string{"token": token})
+}
+
+func (handler *RequestHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	var userDetails auth.UserDetails
+	if err := json.NewDecoder(r.Body).Decode(&userDetails); err != nil {
+		http.Error(w, "Invalid Request", http.StatusBadRequest)
+		return
+	}
+
+	exists, err := handler.db.UserExists(userDetails.Email)
+	if exists {
+		http.Error(w, "User Exists", http.StatusBadRequest)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	err = handler.db.CreateUser(userDetails)
+	if err != nil {
+		http.Error(w, "Server Error", http.StatusInternalServerError)
+	}
 }
