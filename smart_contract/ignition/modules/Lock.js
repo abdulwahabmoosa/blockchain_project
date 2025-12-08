@@ -10,6 +10,10 @@ module.exports = buildModule("LockModule", (m) => {
   const unlockTime = m.getParameter("unlockTime", JAN_1ST_2030);
   const lockedAmount = m.getParameter("lockedAmount", ONE_GWEI);
 
+
+
+  //The contract receives unlockTime as a constructor argument
+  //It is deployed with ETH sent into it (value option
   const lock = m.contract("Lock", [unlockTime], {
     value: lockedAmount,
   });

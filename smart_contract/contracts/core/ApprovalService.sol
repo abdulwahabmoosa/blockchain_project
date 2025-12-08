@@ -1,3 +1,11 @@
+/*
+ApprovalService is a simple admin-controlled whitelist contract. 
+It lets the admin mark which wallet addresses are allowed to participate in the system (for example, who can buy or receive property tokens). 
+The admin (assigned in the constructor) can approve or revoke any user, and the contract stores that in a mapping(address → bool). 
+Other contracts (like your ERC20 PropertyToken) call check(address) to verify whether a user is approved before allowing transfers. 
+Events are emitted whenever a user is approved or revoked, making the system transparent and easy to track. Essentially, 
+this contract acts as the access gatekeeper for your entire platform.
+*/
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
