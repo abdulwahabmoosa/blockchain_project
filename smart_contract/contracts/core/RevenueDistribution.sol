@@ -1,3 +1,20 @@
+/*
+This contract is responsible for paying rental income (revenue) to token holders in a fair and automated way.
+ When the admin (who has the DISTRIBUTOR_ROLE) deposits 
+ revenue for a property, the contract first asks the property’s ERC20
+  token to create a snapshot, which freezes everyone’s token balances at
+   that exact moment. Then the contract stores a new “distribution record” containing 
+   the amount deposited, which token it belongs to, and the snapshot ID. Later, 
+   any investor who held tokens at snapshot time can call claimRevenue() — the contract checks their balance
+    at the snapshot, calculates their share of the revenue based on total supply at that time, 
+    ensures they haven’t already claimed, and transfers their portion of stablecoin to them.
+     It prevents double claiming and protects against reentrancy attacks. In short: 
+     Admin deposits income → snapshot taken → each investor claims their share safely.
+
+*/
+
+
+
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 

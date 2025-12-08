@@ -1,3 +1,19 @@
+/*
+The PropertyFactory is responsible for creating a complete tokenized property on the blockchain. 
+When the admin (who has the CREATOR_ROLE) calls createProperty, 
+the factory automatically generates two linked smart contracts: 
+a PropertyAsset (ERC-721 NFT representing the property itself) 
+and a PropertyToken (ERC-20 token representing the fractional ownership shares). 
+It gives the property a unique ID, stores the metadata hash, and sets the property’s 
+valuation. It then deploys the ERC20 token using the approval service from the registry, 
+links the token back to the asset, and finally mints all fractional tokens to the property owner.
+ In short, this contract is the “machine” that assembles a fully functional tokenized property — creating the deed, 
+ creating the shares, connecting them together, and registering the new property in one transaction.
+
+*/
+
+
+
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
@@ -47,7 +63,9 @@ contract PropertyFactory is AccessControl {
             assetId,
             propertyDataHash,
             valuation,
-            msg.sender
+            //msg.senderaddress(this)
+            address(this) //factory becomes manager
+
         );
 
         // approval service address from registry
@@ -57,7 +75,7 @@ contract PropertyFactory is AccessControl {
         PropertyToken token = new PropertyToken(
             tokenName,
             tokenSymbol,
-            msg.sender,
+            address(this), 
             address(asset),
             approval
         );

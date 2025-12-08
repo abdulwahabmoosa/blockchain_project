@@ -11,7 +11,7 @@ contract PropertyAsset is ERC721, AccessControl {
 
     uint256 public assetId;
     string public propertyDataHash; // IPFS CID or SHA-256 hex
-    uint256 public valuation;
+    uint256 public valuation; //the real-world price 
     address public propertyToken; // linked ERC20
     Status public status;
 
@@ -54,6 +54,8 @@ contract PropertyAsset is ERC721, AccessControl {
         return status;
     }
 
+
+//Lets tools know this contract supports ERC721 + AccessControl interfaces.
     function supportsInterface(bytes4 interfaceId)
         public
         view
