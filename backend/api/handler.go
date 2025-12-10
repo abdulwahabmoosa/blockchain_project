@@ -71,7 +71,7 @@ func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handler *RequestHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
-	var userDetails auth.UserDetails
+	var userDetails auth.RegisterUserPayload
 	if err := json.NewDecoder(r.Body).Decode(&userDetails); err != nil {
 		http.Error(w, "Invalid Request", http.StatusBadRequest)
 		return

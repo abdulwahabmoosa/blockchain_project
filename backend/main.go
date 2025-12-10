@@ -3,9 +3,7 @@ package main
 import (
 	"backend/api"
 	"backend/db"
-	"fmt"
-
-	_ "ariga.io/atlas-provider-gorm/gormschema"
+	"log"
 )
 
 func main() {
@@ -15,7 +13,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("db connection successful")
+	log.Printf("db connection successful\n")
 
 	handler := api.NewRequestHandler(db)
 	handler.Start()

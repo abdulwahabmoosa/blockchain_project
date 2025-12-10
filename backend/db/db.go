@@ -26,10 +26,50 @@ func NewDatabase() (db *Database, err error) {
 	}
 
 	db = &Database{db: gormDB, ctx: context.Background()}
+	if err = db.migrate(); err != nil {
+		return
+	}
 	return
 }
 
-func (db *Database) CreateUser(details auth.UserDetails) error {
+func (db *Database) createEnums() error {
+	sql := `
+        DO $$
+	    BEGIN
+	        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_role') THEN
+	            CREATE TYPE user_role AS ENUM ('admin', 'investor', 'owner');
+			END IF;
+	        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'property_status') THEN
+	            CREATE TYPE property_status AS ENUM ('Active', 'Paused', 'Disputed', 'Closed');
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_type') THEN
+                CREATE TYPE transaction_type AS ENUM ('approve_user', 'create_property', 'deposit_revenue', 'claim_revenue', 'transfer_token');
+            END IF;
+        END
+        $$;
+    `
+	if err := db.db.Exec(sql).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
+func (db *Database) migrate() error {
+	if err := db.createEnums(); err != nil {
+		return err
+	}
+
+	err := db.db.AutoMigrate(
+		&models.User{},
+		&models.Property{},
+		&models.RevenueDistribution{},
+		&models.RevenueClaim{},
+		&models.Transaction{},
+	)
+	return err
+}
+
+func (db *Database) CreateUser(details auth.RegisterUserPayload) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(details.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -37,9 +77,7 @@ func (db *Database) CreateUser(details auth.UserDetails) error {
 
 	newUser := models.User{
 		Email:        details.Email,
-		FirstName:    details.FirstName,
-		LastName:     details.LastName,
-		Phone:        details.Phone,
+		Name:         details.Name,
 		PasswordHash: string(hash),
 	}
 
