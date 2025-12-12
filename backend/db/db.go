@@ -5,7 +5,9 @@ import (
 	"backend/db/models"
 	"context"
 	"errors"
+	"os"
 
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -14,22 +16,6 @@ import (
 type Database struct {
 	db  *gorm.DB
 	ctx context.Context
-}
-
-func NewDatabase() (db *Database, err error) {
-	gormDB, err := gorm.Open(
-		postgres.Open("postgres://blockchain-db:password@localhost:5432/db?sslmode=disable"),
-	)
-
-	if err != nil {
-		return
-	}
-
-	db = &Database{db: gormDB, ctx: context.Background()}
-	if err = db.migrate(); err != nil {
-		return
-	}
-	return
 }
 
 func (db *Database) createEnums() error {
@@ -69,6 +55,35 @@ func (db *Database) migrate() error {
 	return err
 }
 
+func NewDatabase() (db *Database, err error) {
+	dbURL := os.Getenv("DB_URL")
+	if dbURL == "" {
+		return nil, errors.New("DB_URL environment variable is required")
+	}
+
+	gormDB, err := gorm.Open(
+		postgres.Open(dbURL),
+	)
+
+	if err != nil {
+		return
+	}
+
+	db = &Database{db: gormDB, ctx: context.Background()}
+	if err = db.migrate(); err != nil {
+		return
+	}
+	return
+}
+
+func (db *Database) CreateProperty(prop models.Property) error {
+	return gorm.G[models.Property](db.db).Create(db.ctx, &prop)
+}
+
+func (db *Database) CreateRevenueDistribution(rev models.RevenueDistribution) error {
+	return gorm.G[models.RevenueDistribution](db.db).Create(db.ctx, &rev)
+}
+
 func (db *Database) CreateUser(details auth.RegisterUserPayload) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(details.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -100,6 +115,11 @@ func (db *Database) UserExists(email string) (bool, error) {
 	return true, nil
 }
 
+func (db *Database) GetPropertyByTokenAddress(addr string) (result models.Property, err error) {
+	result, err = gorm.G[models.Property](db.db).Where("onchain_token_address = ?", addr).First(db.ctx)
+	return
+}
+
 func (db *Database) GetUserByCredentials(creds auth.LoginCredentials) (user models.User, err error) {
 	user, err = gorm.G[models.User](db.db).
 		Where("email = ?", creds.Email).
@@ -116,5 +136,19 @@ func (db *Database) GetUserByCredentials(creds auth.LoginCredentials) (user mode
 		return
 	}
 
+	return
+}
+
+func (db *Database) GetAllProperties() (result []models.Property, err error) {
+	result, err = gorm.G[models.Property](db.db).Find(db.ctx)
+	return
+}
+
+func (db *Database) GetPropertyByID(id string) (result models.Property, err error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return
+	}
+	result, err = gorm.G[models.Property](db.db).Where("id = ?", uid).First(db.ctx)
 	return
 }
