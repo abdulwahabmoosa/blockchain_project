@@ -4,19 +4,19 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
-// NOTE: generated using: openssl rand -base64 32
 var jwtKey = []byte("7umbl2i2Zy6AR6HjVaE2jN2RBmtzAZXrY4CgHmIFls4=")
 
 type LoginCredentials struct {
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Email    string `json:"email" binding:"required" validate:"required,email"`
+	Password string `json:"password" binding:"required" validate:"required"`
 }
 
 type Claims struct {
-	UserID    uint   `json:"userId"`
-	UserEmail string `json:"userEmail"`
+	UserID    uuid.UUID `json:"userId"`
+	UserEmail string    `json:"userEmail"`
 	jwt.RegisteredClaims
 }
 
@@ -26,7 +26,7 @@ type ClaimsKeyType int
 var TokenKey TokenKeyType
 var ClaimsKey ClaimsKeyType
 
-func GenerateToken(id uint, email string) (string, error) {
+func GenerateToken(id uuid.UUID, email string) (string, error) {
 	expirationTime := time.Now().Add(15 * time.Minute)
 	claims := &Claims{
 		UserID:    id,

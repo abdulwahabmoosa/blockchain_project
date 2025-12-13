@@ -14,7 +14,6 @@
     "set:revenue": "hardhat run scripts/setRevenueInRegistry.js --network localhost",
     "create:property": "hardhat run scripts/createProperty.js --network localhost",
     "approve": "hardhat run scripts/approveUser.js --network localhost",
-    
     "sepolia_deploy:registry": "npx hardhat run scripts/deployRegistry.js --network sepolia",
     "sepolia_deploy:approval": "npx hardhat run scripts/deployApprovalService.js --network sepolia",
     "sepolia_deploy:factory": "npx hardhat run scripts/deployFactory.js --network sepolia",
@@ -36,7 +35,7 @@
   },
   "homepage": "https://github.com/abdulwahabmoosa/blockchain_project#readme",
   "devDependencies": {
-    "hardhat": "^2.26.0"
+    "hardhat": "^2.27.2"
   },
   "dependencies": {
     "@nomiclabs/hardhat-ethers": "^2.2.3",

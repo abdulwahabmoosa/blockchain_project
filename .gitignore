@@ -1,9 +1,8 @@
 **/.vscode
 **/.idea
 **/.env
-node_modules
 
-
+**/logs
 
 # Hardhat files
 /cache
