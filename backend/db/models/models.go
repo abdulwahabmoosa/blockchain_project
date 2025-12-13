@@ -11,9 +11,8 @@ import (
 type UserRole string
 
 const (
-	RoleAdmin    UserRole = "admin"
-	RoleInvestor UserRole = "investor"
-	RoleOwner    UserRole = "owner"
+	RoleAdmin UserRole = "admin"
+	RoleUser  UserRole = "user"
 )
 
 type User struct {
@@ -22,8 +21,8 @@ type User struct {
 	Email         string    `gorm:"type:varchar(255)"`
 	Name          string    `gorm:"type:varchar(255)"`
 	PasswordHash  string    `gorm:"not null"`
-	Role          UserRole  `gorm:"type:user_role;default:'investor'"` // Maps to role ENUM
-	IsApproved    bool      `gorm:"default:false"`                     // Synced from ApprovalService contract
+	Role          UserRole  `gorm:"type:user_role;default:'user'"` // Maps to role ENUM
+	IsApproved    bool      `gorm:"default:false"`                 // Synced from ApprovalService contract
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	DeletedAt     gorm.DeletedAt `gorm:"index"`

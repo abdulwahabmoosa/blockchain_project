@@ -7,12 +7,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// NOTE: generated using: openssl rand -base64 32
 var jwtKey = []byte("7umbl2i2Zy6AR6HjVaE2jN2RBmtzAZXrY4CgHmIFls4=")
 
 type LoginCredentials struct {
-	Email    string `json:"email" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	Email    string `json:"email" binding:"required" validate:"required,email"`
+	Password string `json:"password" binding:"required" validate:"required"`
 }
 
 type Claims struct {

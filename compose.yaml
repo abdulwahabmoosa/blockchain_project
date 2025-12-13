@@ -4,6 +4,9 @@ x-blockchain-env: &blockchain-env
     REGISTRY: ${REGISTRY}
     PRIVATE_KEY_2: ${PRIVATE_KEY_2}
     REVENUE: ${REVENUE}
+    PINATA_API_KEY: ${PINATA_API_KEY}
+    PINATA_API_SECRET: ${PINATA_API_SECRET}
+    PINATA_JWT_TOKEN: ${PINATA_JWT_TOKEN}
 
 services:
     blockchain:
@@ -11,8 +14,7 @@ services:
         working_dir: /app
         volumes:
             - ./smart_contract:/app
-            - ./logs:/var/log/blockchain
-        command: /bin/sh -c "if [ ! -d node_modules ]; then npm install; fi && npx hardhat node > /var/log/blockchain/smart_contracts.logs"
+        command: /bin/sh -c "if [ ! -d node_modules ]; then npm install; fi && npx hardhat node"
         ports:
             - "8545:8545"
         environment:

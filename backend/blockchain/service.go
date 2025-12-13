@@ -34,7 +34,7 @@ type ChainService struct {
 func NewChainServiceEnv() (*ChainService, error) {
 	rpcURL := os.Getenv("SEPOLIA_RPC")
 	if rpcURL == "" {
-		rpcURL = "ws://127.0.0.1:8545"
+		rpcURL = "ws://127.0.0.1:8545" // Must use WS for event subscriptions
 	}
 
 	privateKey := os.Getenv("PRIVATE_KEY")
@@ -119,6 +119,7 @@ func (s *ChainService) GetTransactor() (*bind.TransactOpts, error) {
 	return auth, nil
 }
 
+// CreateProperty deploys a new property via the Factory
 func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, valuation, supply int64) (*types.Transaction, error) {
 	auth, err := s.GetTransactor()
 	if err != nil {
@@ -129,9 +130,11 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 	valBig := big.NewInt(valuation)
 	supplyBig := big.NewInt(supply)
 
-	return s.PropertyFactory.CreateProperty(auth, owner, name, symbol, dataHash, valBig, supplyBig, "PropToken", "PTK")
+	// tokenName and tokenSymbol are derived for simplicity here
+	return s.PropertyFactory.CreateProperty(auth, owner, name, symbol, dataHash, valBig, supplyBig, name+" Token", "TKN")
 }
 
+// DistributeRevenue deposits funds into the Revenue contract
 func (s *ChainService) DistributeRevenue(tokenAddrStr, stablecoinAddrStr string, amount int64) (*types.Transaction, error) {
 	auth, err := s.GetTransactor()
 	if err != nil {
@@ -143,4 +146,15 @@ func (s *ChainService) DistributeRevenue(tokenAddrStr, stablecoinAddrStr string,
 	amountBig := big.NewInt(amount)
 
 	return s.RevenueDistribution.DepositRevenue(auth, tokenAddr, stablecoinAddr, amountBig)
+}
+
+// ApproveUser allows a specific wallet address to participate in the platform
+func (s *ChainService) ApproveUser(userAddressStr string) (*types.Transaction, error) {
+	auth, err := s.GetTransactor()
+	if err != nil {
+		return nil, err
+	}
+
+	userAddr := common.HexToAddress(userAddressStr)
+	return s.Approval.Approve(auth, userAddr)
 }
