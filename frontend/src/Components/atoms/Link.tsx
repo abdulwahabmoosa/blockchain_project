@@ -1,4 +1,5 @@
 import React from "react";
+import { Link as RouterLink } from "react-router-dom";
 import { twMerge } from "tailwind-merge";
 
 interface LinkProps {
@@ -19,14 +20,22 @@ export const Link: React.FC<LinkProps> = ({
     className
   );
 
+  if (external) {
+    return (
+      <a
+        href={href}
+        className={classes}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {children}
+      </a>
+    );
+  }
+
   return (
-    <a
-      href={href}
-      className={classes}
-      target={external ? "_blank" : undefined}
-      rel={external ? "noopener noreferrer" : undefined}
-    >
+    <RouterLink to={href} className={classes}>
       {children}
-    </a>
+    </RouterLink>
   );
 };

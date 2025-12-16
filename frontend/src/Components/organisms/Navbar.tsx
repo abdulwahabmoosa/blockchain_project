@@ -1,5 +1,6 @@
 // Components/organisms/Navbar.tsx
 import React, { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { Brand } from "../molecules/Brand";
 import { NavLink } from "../molecules/NavLink";
 import { HamburgerButton } from "../molecules/Hamburger";
@@ -13,9 +14,11 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const location = useLocation();
+  const activeHref = currentPage || location.pathname;
 
   const navLinks = [
-    { label: "Home", href: "/home" },
+    { label: "Home", href: "/" },
     { label: "About Us", href: "/about" },
     { label: "Properties", href: "/properties" },
     { label: "Services", href: "/services" },
@@ -37,19 +40,21 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
           {/* CENTER: Desktop Navigation */}
           <NavLink
             links={navLinks}
-            activeHref={currentPage}
+            activeHref={activeHref}
             className="hidden md:flex"
           />
 
           {/* RIGHT: Desktop CTA Button */}
           <div className="hidden md:block">
-            <Button
-              variant="outline"
-              size="md"
-              className="border-[#262626] bg-[#1A1A1A] text-white hover:bg-[#262626]"
-            >
-              Contact Us
-            </Button>
+            <Link href="/login">
+              <Button
+                variant="outline"
+                size="md"
+                className="border-[#262626] bg-[#1A1A1A] text-white hover:bg-[#262626]"
+              >
+                Login
+              </Button>
+            </Link>
           </div>
 
           {/* MOBILE: Hamburger Button */}
@@ -65,13 +70,15 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
           links={navLinks}
           isOpen={isMobileMenuOpen}
           ctaButton={
-            <Button
-              variant="outline"
-              size="md"
-              className="border-[#262626] bg-[#1A1A1A] text-white  w-full"
-            >
-              Contact Us
-            </Button>
+              <Link href="/login" className="w-full">
+                <Button
+                  variant="outline"
+                  size="md"
+                  className="border-[#262626] bg-[#1A1A1A] text-white  w-full"
+                >
+                  Login
+                </Button>
+              </Link>
           }
           className="bg-[#1A1A1A]"
         />

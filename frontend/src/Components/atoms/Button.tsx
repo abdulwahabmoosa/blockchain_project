@@ -12,6 +12,7 @@ interface ButtonProps {
   size?: "sm" | "md" | "lg";
   type?: "button" | "submit" | "reset";
   rounding?: "none" | "sm" | "md" | "lg" | "full";
+  disabled?: boolean;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -24,6 +25,7 @@ export const Button: React.FC<ButtonProps> = ({
   type = "button",
   variant = "primary",
   rounding = "md",
+  disabled = false,
   as: Component = "button",
 }) => {
   const variantClasses = {
@@ -53,6 +55,7 @@ export const Button: React.FC<ButtonProps> = ({
     variantClasses[variant],
     sizeClasses[size],
     roundingClasses[rounding],
+    disabled && "opacity-50 cursor-not-allowed pointer-events-none",
     className
   );
 
@@ -70,6 +73,7 @@ export const Button: React.FC<ButtonProps> = ({
       onClick={onClick}
       style={color ? { color } : undefined}
       type={type}
+      disabled={disabled}
     >
       {children}
     </Component>
