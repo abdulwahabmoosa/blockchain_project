@@ -1,0 +1,49 @@
+{
+  "name": "blockchain_project",
+  "version": "1.0.0",
+  "description": "Create a fullstack ready to deploy application with a blockchain solution",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "dev": "hardhat node",
+    "deploy:registry": "hardhat run scripts/deployRegistry.js --network localhost",
+    "deploy:approval": "hardhat run scripts/deployApprovalService.js --network localhost",
+    "deploy:factory": "hardhat run scripts/deployFactory.js --network localhost",
+    "deploy:revenue": "hardhat run scripts/deployRevenue.js --network localhost",
+    "set:revenue": "hardhat run scripts/setRevenueInRegistry.js --network localhost",
+    "create:property": "hardhat run scripts/createProperty.js --network localhost",
+    "approve": "hardhat run scripts/approveUser.js --network localhost",
+    "sepolia_deploy:registry": "npx hardhat run scripts/deployRegistry.js --network sepolia",
+    "sepolia_deploy:approval": "npx hardhat run scripts/deployApprovalService.js --network sepolia",
+    "sepolia_deploy:factory": "npx hardhat run scripts/deployFactory.js --network sepolia",
+    "sepolia_deploy:revenue": "npx hardhat run scripts/deployRevenue.js --network sepolia",
+    "sepolia_approve": "npx hardhat run scripts/approveUser.js --network sepolia",
+    "sepolia_create:property": "npx hardhat run scripts/createProperty.js --network sepolia",
+    "sepolia_set:revenue": "npx hardhat run scripts/setRevenueInRegistry.js --network sepolia",
+    "sepolia_save:property": "npx hardhat run scripts/saveProperty.js --network sepolia"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/abdulwahabmoosa/blockchain_project.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/abdulwahabmoosa/blockchain_project/issues"
+  },
+  "homepage": "https://github.com/abdulwahabmoosa/blockchain_project#readme",
+  "devDependencies": {
+    "hardhat": "^2.27.2"
+  },
+  "dependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "@nomiclabs/hardhat-waffle": "^2.0.6",
+    "@openzeppelin/contracts": "^4.9.6",
+    "chai": "^6.2.1",
+    "dotenv": "^17.2.3",
+    "ethereum-waffle": "^4.0.10",
+    "ethers": "^5.8.0"
+  }
+}
