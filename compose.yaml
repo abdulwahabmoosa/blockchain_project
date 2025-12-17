@@ -49,7 +49,6 @@ services:
             <<: *blockchain-env
             DB_URL: postgres://blockchain-db:password@db:5432/db?sslmode=disable
         depends_on:
-            - blockchain
             - db
         command: /bin/sh -c "go mod download && go run main.go"
         ports:

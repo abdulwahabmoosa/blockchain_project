@@ -26,8 +26,12 @@ function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await api.login(email, password);
-      navigate(from, { replace: true });
+      const loginData = await api.login(email, password);
+      // Dispatch custom event to notify navbar of login
+      window.dispatchEvent(new Event("authChange"));
+      // Redirect admins to admin dashboard, others to regular dashboard
+      const redirectTo = loginData.user.Role === "admin" ? "/admin" : "/dashboard";
+      navigate(redirectTo, { replace: true });
     } catch (err: any) {
       setError(err.message || "Login failed");
     } finally {

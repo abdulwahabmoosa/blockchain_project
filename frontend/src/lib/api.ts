@@ -103,9 +103,16 @@ export const api = {
     return handleResponse(response);
   },
 
+  getUsers: async (): Promise<any[]> => {
+    const response = await fetch(`${BASE_URL}/users`, {
+      headers: getHeaders(),
+    });
+    return handleResponse<any[]>(response);
+  },
+
   approveUser: async (
     wallet_address: string
-  ): Promise<{ status: string; tx_hash: string }> => {
+  ): Promise<{ status: string; tx_hash: string; approved: boolean }> => {
     const response = await fetch(`${BASE_URL}/approve-user`, {
       method: "POST",
       headers: getHeaders(),

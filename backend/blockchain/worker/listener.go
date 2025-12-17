@@ -15,17 +15,21 @@ import (
 )
 
 func StartListeners(chain *blockchain.ChainService, database *db.Database) {
+	log.Printf("🔄 Starting blockchain event listeners...")
 	go listenForProperties(chain, database)
 	go listenForRevenue(chain, database)
 	go listenForApprovals(chain, database)
 	go listenForRevenueClaims(chain, database)
+	log.Printf("✅ All event listeners started")
 }
 
 func listenForProperties(chain *blockchain.ChainService, database *db.Database) {
 	sink := make(chan *property_factory.PropertyFactoryPropertyRegistered)
 	sub, err := chain.PropertyFactory.WatchPropertyRegistered(nil, sink, nil)
 	if err != nil {
-		log.Fatalf("Failed to subscribe to property events: %v", err)
+		log.Printf("⚠️ Failed to subscribe to property events: %v", err)
+		log.Printf("ℹ️ Property events will not be monitored (RPC may not support subscriptions)")
+		return
 	}
 	log.Println("🎧 Listening for New Properties...")
 
@@ -62,7 +66,9 @@ func listenForRevenue(chain *blockchain.ChainService, database *db.Database) {
 	sink := make(chan *revenue_distribution.RevenueDistributionRevenueDeposited)
 	sub, err := chain.RevenueDistribution.WatchRevenueDeposited(nil, sink, nil, nil)
 	if err != nil {
-		log.Fatalf("Failed to subscribe to revenue events: %v", err)
+		log.Printf("⚠️ Failed to subscribe to revenue events: %v", err)
+		log.Printf("ℹ️ Revenue events will not be monitored (RPC may not support subscriptions)")
+		return
 	}
 	log.Println("🎧 Listening for Revenue Deposits...")
 
@@ -101,7 +107,9 @@ func listenForApprovals(chain *blockchain.ChainService, database *db.Database) {
 	sink := make(chan *approval_service.ApprovalServiceApproved)
 	sub, err := chain.Approval.WatchApproved(nil, sink, nil)
 	if err != nil {
-		log.Fatalf("Failed to subscribe to approval events: %v", err)
+		log.Printf("⚠️ Failed to subscribe to approval events: %v", err)
+		log.Printf("ℹ️ Approval events will not be monitored (RPC may not support subscriptions)")
+		return
 	}
 	log.Println("🎧 Listening for User Approvals...")
 
@@ -125,7 +133,9 @@ func listenForRevenueClaims(chain *blockchain.ChainService, database *db.Databas
 	sink := make(chan *revenue_distribution.RevenueDistributionRevenueClaimed)
 	sub, err := chain.RevenueDistribution.WatchRevenueClaimed(nil, sink, nil, nil)
 	if err != nil {
-		log.Fatalf("Failed to subscribe to claim events: %v", err)
+		log.Printf("⚠️ Failed to subscribe to claim events: %v", err)
+		log.Printf("ℹ️ Claim events will not be monitored (RPC may not support subscriptions)")
+		return
 	}
 	log.Println("🎧 Listening for Revenue Claims...")
 

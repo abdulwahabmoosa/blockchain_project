@@ -3,8 +3,8 @@
 /** @type import('hardhat/config').HardhatUserConfig */
 require('@nomiclabs/hardhat-waffle');
 require('@nomiclabs/hardhat-ethers');
-require('dotenv').config();
-const { PRIVATE_KEY, SEPOLIA_RPC, PRIVATE_KEY_2 } = process.env;
+require("dotenv").config({ path: "../.env" });
+const { SEPOLIA_RPC_BC, PRIVATE_KEY_2 } = process.env;
 
 module.exports = {
   solidity: {
@@ -24,8 +24,8 @@ module.exports = {
 
   networks: {
       sepolia: {
-        url: SEPOLIA_RPC,
-        accounts: [PRIVATE_KEY, PRIVATE_KEY_2],
+        url: SEPOLIA_RPC_BC,
+        accounts: [PRIVATE_KEY_2],
       },
       localhost: {
         url: 'http://127.0.0.1:8545',

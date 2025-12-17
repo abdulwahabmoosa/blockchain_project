@@ -20,9 +20,16 @@ async function main() {
     approvalAddr
   );
 
-  await Approval.connect(admin).approve(investor.address);
+  // Approve the admin address first
+  const adminAddress = "0x98e5a749e25c56e19c28008505df75aff4988049";
+  await Approval.connect(admin).approve(adminAddress);
+  console.log('Approved admin:', adminAddress);
 
-  console.log('Approved investor:', investor.address);
+  // Also approve the investor if provided
+  if (investor) {
+    await Approval.connect(admin).approve(investor.address);
+    console.log('Approved investor:', investor.address);
+  }
 }
 
 // main().catch(err => {

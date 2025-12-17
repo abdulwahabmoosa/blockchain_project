@@ -52,7 +52,12 @@ type RequestHandler struct {
 }
 
 func NewRequestHandler(db *db.Database, chain *blockchain.ChainService) *RequestHandler {
-	worker.StartListeners(chain, db)
+	// Start blockchain event listeners (optional - won't crash if subscriptions fail)
+	if chain != nil {
+		log.Printf("🔄 Starting blockchain event listeners...")
+		worker.StartListeners(chain, db)
+		log.Printf("✅ Blockchain listeners started (may show warnings if RPC doesn't support subscriptions)")
+	}
 	return &RequestHandler{db, chain}
 }
 
@@ -81,6 +86,7 @@ func (handler *RequestHandler) Start() {
 		// Admin Routes
 		r.Group(func(r chi.Router) {
 			r.Use(handler.AdminMiddleware)
+			r.Get("/users", handler.GetUsers)
 			r.Post("/approve-user", handler.ApproveUser)
 			r.Post("/properties", handler.CreateProperty)
 			r.Post("/revenue/distribute", handler.DistributeRevenue)
@@ -120,29 +126,39 @@ func (handler *RequestHandler) Start() {
 }
 
 func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
+	log.Printf("🔐 Login attempt started")
+
 	var creds auth.LoginCredentials
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
+		log.Printf("❌ Login failed: JSON decode error: %v", err)
 		http.Error(w, "Invalid Request", http.StatusBadRequest)
 		return
 	}
+	log.Printf("📋 Login credentials received: email=%s", creds.Email)
 
 	// VALIDATION
 	if err := validate.Struct(creds); err != nil {
+		log.Printf("❌ Login failed: Validation error: %v", err)
 		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
 		return
 	}
+	log.Printf("✅ Login validation passed")
 
 	user, err := handler.db.GetUserByCredentials(creds)
 	if err != nil {
+		log.Printf("❌ Login failed: Database error: %v", err)
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	log.Printf("✅ User found in database: ID=%s, Email=%s, Role=%s", user.ID, user.Email, user.Role)
 
 	token, err := auth.GenerateToken(user.ID, user.Email)
 	if err != nil {
+		log.Printf("❌ Login failed: Token generation error: %v", err)
 		http.Error(w, "Server Error", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("✅ Login token generated successfully")
 
 	render.JSON(w, r, map[string]any{
 		"token": token,
@@ -239,26 +255,46 @@ func (handler *RequestHandler) ApproveUser(w http.ResponseWriter, r *http.Reques
 
 	var req ApproveUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		log.Printf("❌ Failed to decode request: %v", err)
 		http.Error(w, "Invalid Request", http.StatusBadRequest)
 		return
 	}
 
 	// VALIDATION
 	if err := validate.Struct(req); err != nil {
+		log.Printf("❌ Validation failed: %v", err)
 		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	tx, err := handler.chain.ApproveUser(req.WalletAddress)
-	if err != nil {
-		http.Error(w, "Blockchain Error: "+err.Error(), http.StatusInternalServerError)
+	// Check if chain service is available
+	if handler.chain == nil {
+		log.Printf("❌ Chain service not initialized - blockchain functionality disabled")
+		http.Error(w, "Blockchain service not available - check environment configuration", http.StatusServiceUnavailable)
 		return
 	}
 
-	render.JSON(w, r, map[string]string{
-		"status":  "pending",
-		"message": "User approval submitted to blockchain",
-		"tx_hash": tx.Hash().Hex(),
+	log.Printf("🔄 Approving user on blockchain: %s", req.WalletAddress)
+	tx, err := handler.chain.ApproveUser(req.WalletAddress)
+	if err != nil {
+		log.Printf("❌ Blockchain approval failed for %s: %v", req.WalletAddress, err)
+		http.Error(w, "Blockchain Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	log.Printf("✅ Blockchain approval confirmed for: %s", req.WalletAddress)
+
+	// Check final approval status
+	approved, err := handler.chain.IsApproved(req.WalletAddress)
+	if err != nil {
+		log.Printf("⚠️ Could not verify approval status: %v", err)
+		approved = false // assume not approved if we can't check
+	}
+
+	render.JSON(w, r, map[string]interface{}{
+		"status":   "confirmed",
+		"message":  "User approval confirmed on blockchain",
+		"tx_hash":  tx.Hash().Hex(),
+		"approved": approved,
 	})
 }
 
@@ -279,6 +315,15 @@ func (handler *RequestHandler) GetProperty(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	render.JSON(w, r, prop)
+}
+
+func (handler *RequestHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
+	users, err := handler.db.GetAllUsers()
+	if err != nil {
+		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
+		return
+	}
+	render.JSON(w, r, users)
 }
 
 // AdminMiddleware ensures the authenticated user has the 'admin' role.
@@ -304,6 +349,7 @@ func (handler *RequestHandler) AdminMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
 func (handler *RequestHandler) UploadMetadata(w http.ResponseWriter, r *http.Request) {
 	// 1. Parse Multipart Form (10 MB limit)
 	if err := r.ParseMultipartForm(10 << 20); err != nil {

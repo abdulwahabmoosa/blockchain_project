@@ -12,14 +12,16 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
 contract ApprovalService is AccessControl {
-    bytes32 public constant ADMIN_ROLE = DEFAULT_ADMIN_ROLE;
+    bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     mapping(address => bool) public isApproved;
 
-    event Approved(address indexed user);
-    event Revoked(address indexed user);
+    event Approved(address indexed user, address indexed admin);
+    event Revoked(address indexed user, address indexed admin);
 
-    constructor(address admin) {
-        _setupRole(ADMIN_ROLE, admin);
+    constructor(address initialAdmin) {
+        // Grant admin role to the specified wallet
+        _grantRole(ADMIN_ROLE, initialAdmin);
+        _grantRole(DEFAULT_ADMIN_ROLE, initialAdmin); // for role management
     }
 
     modifier onlyAdmin() {
@@ -29,12 +31,21 @@ contract ApprovalService is AccessControl {
 
     function approve(address user) external onlyAdmin {
         isApproved[user] = true;
-        emit Approved(user);
+        emit Approved(user, msg.sender);
     }
 
     function revoke(address user) external onlyAdmin {
         isApproved[user] = false;
-        emit Revoked(user);
+        emit Revoked(user, msg.sender);
+    }
+
+    // Optional: add or remove admins
+    function grantAdmin(address user) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _grantRole(ADMIN_ROLE, user);
+    }
+
+    function revokeAdmin(address user) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _revokeRole(ADMIN_ROLE, user);
     }
 
     function check(address user) external view returns (bool) {

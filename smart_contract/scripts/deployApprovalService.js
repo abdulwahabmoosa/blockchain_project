@@ -1,13 +1,15 @@
 const hre = require("hardhat");
 
 async function main() {
-  const [admin] = await hre.ethers.getSigners();
+  // Use the specific admin address (the one the user is logged in with)
+  const adminAddress = "0x98e5a749e25c56e19c28008505df75aff4988049";
 
   const Approval = await hre.ethers.getContractFactory("ApprovalService");
-  const approval = await Approval.deploy(admin.address);
+  const approval = await Approval.deploy(adminAddress);
   await approval.deployed();
 
   console.log("ApprovalService:", approval.address);
+  console.log("Admin granted permissions:", adminAddress);
 
   const registryAddr = process.env.REGISTRY;
   if (!registryAddr) {

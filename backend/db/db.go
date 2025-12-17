@@ -51,7 +51,10 @@ func (db *Database) seedAdmin() error {
 	if password == "" {
 		password = "password"
 	}
-	wallet := ""
+	wallet := os.Getenv("ADMIN_WALLET")
+	if wallet == "" {
+		wallet = "0x98E5a749E25C56e19C28008505DF75aFf4988049" // Admin wallet address
+	}
 
 	// 2. Generate Hash in Go
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -159,6 +162,11 @@ func (db *Database) GetUserById(id string) (models.User, error) {
 
 func (db *Database) GetUserByWallet(wallet string) (models.User, error) {
 	return gorm.G[models.User](db.db).Where("wallet_address = ?", wallet).First(db.ctx)
+}
+
+func (db *Database) GetAllUsers() (result []models.User, err error) {
+	result, err = gorm.G[models.User](db.db).Find(db.ctx)
+	return
 }
 
 func (db *Database) UpdateUserApproval(wallet string, approved bool) error {
