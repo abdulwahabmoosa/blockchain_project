@@ -81,7 +81,7 @@ func distributeRevenueToAllProperties(database *db.Database, chainService *block
 
 	// For testing: distribute 0.001 ETH worth of test USDC to each property
 	// In production, this could be based on actual rental income
-	testRevenueAmount := "1000000" // 1 million wei (0.001 ETH in wei for 18-decimal tokens)
+	testRevenueAmount := int64(1000000) // 1 million wei (0.001 ETH in wei for 18-decimal tokens)
 
 	// Use a mock stablecoin address for testing (USDC on Sepolia)
 	// In production, this should be a real stablecoin contract

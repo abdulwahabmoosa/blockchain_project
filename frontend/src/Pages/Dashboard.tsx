@@ -58,6 +58,16 @@ function DashboardPage() {
   const navigate = useNavigate();
   const { isConnected, address, provider, signer, connectRegisteredWallet } = useWallet();
 
+  // Debug wallet state
+  useEffect(() => {
+    console.log("🔗 Wallet state:", {
+      isConnected,
+      address: address?.substring(0, 10) + "...",
+      hasProvider: !!provider,
+      hasSigner: !!signer
+    });
+  }, [isConnected, address, provider, signer]);
+
 
   // Check if user is admin and redirect if needed
   useEffect(() => {
@@ -163,15 +173,18 @@ function DashboardPage() {
   useEffect(() => {
     const fetchProperties = async () => {
       try {
+        console.log("🔍 Fetching properties from API...");
         const data = await api.getProperties();
+        console.log("📊 Properties received:", data.length, data);
         const propertiesWithLoading = data.map((p) => ({
           ...p,
           balanceLoading: true,
           tokenBalance: undefined,
         }));
         setProperties(propertiesWithLoading);
+        console.log("✅ Properties loaded:", propertiesWithLoading.length);
       } catch (err: any) {
-        console.error("Failed to fetch properties:", err);
+        console.error("❌ Failed to fetch properties:", err);
         setError("Failed to load properties");
       } finally {
         setLoading(false);
@@ -215,52 +228,65 @@ function DashboardPage() {
   useEffect(() => {
     const fetchBalances = async () => {
       if (!isConnected || !address || !provider || properties.length === 0) {
+        console.log("⏭️ Skipping balance fetch - not connected or no properties", { isConnected, address: address?.substring(0, 10), propertiesCount: properties.length });
         return;
       }
 
       // Skip if already loading or if balances are already loaded
       const needsLoading = properties.some((p) => p.balanceLoading === true);
       if (!needsLoading) {
+        console.log("⏭️ Skipping balance fetch - all balances already loaded");
         return;
       }
 
+      console.log("🔄 Fetching token balances for", properties.length, "properties");
+      console.log("👤 User address:", address);
       setTotalBalanceLoading(true);
       let total = 0n;
 
       // Fetch balance for each property
       const updatedProperties = await Promise.all(
         properties.map(async (property) => {
+          console.log(`🔍 Checking balance for property ${property.ID} (${property.OnchainTokenAddress})`);
+
           // If already loaded, reuse the value
           if (property.tokenBalance !== undefined && !property.balanceLoading) {
             try {
               const balance = parseFloat(property.tokenBalance.replace(/[^\d.]/g, "")) * 10**18;
               total += BigInt(Math.floor(balance));
+              console.log(`✅ Reusing existing balance for ${property.ID}: ${property.tokenBalance}`);
             } catch {
-              // ignore parsing errors
+              console.log(`⚠️ Failed to parse existing balance for ${property.ID}`);
             }
             return property;
           }
 
           try {
+            console.log(`📡 Calling getTokenBalance for ${property.ID}...`);
             const balance = await getTokenBalance(
               property.OnchainTokenAddress,
               address,
               provider
             );
+            console.log(`✅ Balance for ${property.ID}:`, balance.toString(), "wei");
             total += balance;
 
             // If user has tokens in this property, fetch claimable distributions
             let claimableDistributions = undefined;
             if (balance > 0n) {
+              console.log(`💰 User has tokens in ${property.ID}, fetching claimable distributions...`);
               try {
                 claimableDistributions = await getClaimableDistributions(
                   property.OnchainTokenAddress,
                   address,
                   provider
                 );
+                console.log(`✅ Found ${claimableDistributions.length} claimable distributions for ${property.ID}`);
               } catch (claimErr) {
-                console.error(`Failed to fetch claimable distributions for property ${property.ID}:`, claimErr);
+                console.error(`❌ Failed to fetch claimable distributions for property ${property.ID}:`, claimErr);
               }
+            } else {
+              console.log(`ℹ️ User has no tokens in ${property.ID}`);
             }
 
             return {
@@ -270,7 +296,7 @@ function DashboardPage() {
               claimableDistributions,
             };
           } catch (err) {
-            console.error(`Failed to fetch balance for property ${property.ID}:`, err);
+            console.error(`❌ Failed to fetch balance for property ${property.ID}:`, err);
             return {
               ...property,
               tokenBalance: "0",
@@ -281,9 +307,11 @@ function DashboardPage() {
         })
       );
 
+      console.log("🎯 Total balance calculated:", total.toString(), "wei");
       setProperties(updatedProperties);
       setTotalBalance(formatTokenBalance(total));
       setTotalBalanceLoading(false);
+      console.log("✅ Balance fetching completed");
     };
 
     fetchBalances();

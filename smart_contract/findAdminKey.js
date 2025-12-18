@@ -16,3 +16,4 @@ console.log('PRIVATE_KEY_2 address:', wallet2.address);
 console.log('Is admin?', wallet2.address.toLowerCase() === adminAddress.toLowerCase());
 
 console.log('\nExpected admin address:', adminAddress);
+
