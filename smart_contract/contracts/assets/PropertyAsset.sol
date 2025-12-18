@@ -17,6 +17,8 @@ contract PropertyAsset is ERC721, AccessControl {
 
     event PropertyStatusChanged(Status newStatus);
     event PropertyTokenLinked(address token);
+    event PropertyApproved(uint256 assetId);
+    event PropertyRejected(uint256 assetId);
 
     constructor(
         string memory name_,
@@ -48,6 +50,26 @@ contract PropertyAsset is ERC721, AccessControl {
     function setStatus(Status newStatus) external onlyManager {
         status = newStatus;
         emit PropertyStatusChanged(newStatus);
+    }
+
+    /**
+     * @dev Convenience helper for explicitly approving a property on-chain.
+     * Mirrors backend approval logic by setting the status to Active and emitting a dedicated event.
+     */
+    function approveProperty() external onlyManager {
+        status = Status.Active;
+        emit PropertyStatusChanged(Status.Active);
+        emit PropertyApproved(assetId);
+    }
+
+    /**
+     * @dev Convenience helper for explicitly rejecting a property on-chain.
+     * Mirrors backend rejection logic by setting the status to Closed and emitting a dedicated event.
+     */
+    function rejectProperty() external onlyManager {
+        status = Status.Closed;
+        emit PropertyStatusChanged(Status.Closed);
+        emit PropertyRejected(assetId);
     }
 
     function getStatus() external view returns (Status) {

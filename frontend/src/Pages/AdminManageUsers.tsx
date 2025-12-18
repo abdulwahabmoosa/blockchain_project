@@ -28,6 +28,7 @@ interface ApiUser {
 interface UserWithStatus extends UserData {
   blockchainApproved: boolean | null;
   approving: boolean;
+  rejecting: boolean;
   pendingConfirmation: boolean;
 }
 
@@ -70,6 +71,18 @@ function AdminManageUsers() {
   // Save approval status to localStorage
   const setPersistedApprovals = (approvals: Record<string, boolean>) => {
     localStorage.setItem("userApprovals", JSON.stringify(approvals));
+  };
+
+  // Clear all persisted approvals (useful for debugging)
+  const clearPersistedApprovals = () => {
+    console.log("🗑️ Clearing persisted approval data...");
+    console.log("📚 Before clearing - userApprovals:", localStorage.getItem("userApprovals"));
+    console.log("⏳ Before clearing - pendingApprovals:", localStorage.getItem("pendingApprovals"));
+    localStorage.removeItem("userApprovals");
+    localStorage.removeItem("pendingApprovals");
+    console.log("✅ Cleared all persisted approval data");
+    console.log("📚 After clearing - userApprovals:", localStorage.getItem("userApprovals"));
+    console.log("⏳ After clearing - pendingApprovals:", localStorage.getItem("pendingApprovals"));
   };
 
   useEffect(() => {
@@ -138,6 +151,7 @@ function AdminManageUsers() {
   const checkBlockchainStatus = async (currentUsers: UserWithStatus[]) => {
     console.log('🔄 Starting blockchain status check...');
     console.log('🔗 Wallet connected:', isConnected, 'Provider available:', !!provider);
+    console.log('👥 Users to check:', currentUsers.map(u => ({ email: u.Email, address: u.WalletAddress })));
     setIsCheckingBlockchain(true);
 
     let blockchainProvider: ethers.BrowserProvider | ethers.AbstractProvider | null = provider;
@@ -158,6 +172,7 @@ function AdminManageUsers() {
 
     if (currentUsers.length === 0) {
       console.log('ℹ️ No users to check');
+      setIsCheckingBlockchain(false);
       return currentUsers;
     }
 
@@ -165,82 +180,85 @@ function AdminManageUsers() {
       const pendingApprovals = getPendingApprovals();
       console.log('📋 Pending approvals:', pendingApprovals);
 
-      // Check users sequentially to avoid overwhelming the RPC endpoint
-      const checkAllPromise = (async () => {
-        const results: UserWithStatus[] = [];
+      // Ensure we have a valid provider
+      if (!blockchainProvider) {
+        console.error('❌ No blockchain provider available');
+        setIsCheckingBlockchain(false);
+        return currentUsers;
+      }
 
-        // Ensure we have a valid provider
-        if (!blockchainProvider) {
-          console.error('❌ No blockchain provider available');
-          return currentUsers;
+      // Check users in parallel for faster results (with concurrency limit)
+      const checkUserStatus = async (user: UserWithStatus): Promise<UserWithStatus> => {
+        // Skip users with empty wallet addresses
+        if (!user.WalletAddress || user.WalletAddress.trim() === "") {
+          console.log(`⏭️ Skipping ${user.Email}: No wallet address set`);
+          return { ...user, blockchainApproved: null, pendingConfirmation: false };
         }
 
-        for (const user of currentUsers) {
-          // Skip users with empty wallet addresses
-          if (!user.WalletAddress || user.WalletAddress.trim() === "") {
-            console.log(`⏭️ Skipping ${user.Email}: No wallet address set`);
-            results.push({ ...user, blockchainApproved: null, pendingConfirmation: false });
-            continue;
-          }
+        try {
+          console.log(`🔍 Checking approval status for ${user.Email} (${user.WalletAddress})`);
 
-          try {
-            console.log(`🔍 Checking approval status for ${user.Email} (${user.WalletAddress})`);
-            console.log(`📋 Previous approval status: ${user.blockchainApproved}`);
+          // Add timeout to blockchain check (reduced from 3s to 2s)
+          const checkPromise = checkApprovalStatus(user.WalletAddress, blockchainProvider!);
+          const timeoutPromise = new Promise<boolean>((_, reject) =>
+            setTimeout(() => reject(new Error('Blockchain check timeout')), 2000)
+          );
 
-            // Add timeout to blockchain check
-            const checkPromise = checkApprovalStatus(user.WalletAddress, blockchainProvider!);
-            const timeoutPromise = new Promise<boolean>((_, reject) =>
-              setTimeout(() => reject(new Error('Blockchain check timeout')), 3000)
-            );
+          const blockchainApproved = await Promise.race([checkPromise, timeoutPromise]);
+          console.log(`✅ Approval status for ${user.Email}: ${blockchainApproved}`);
 
-            const blockchainApproved = await Promise.race([checkPromise, timeoutPromise]);
-            console.log(`✅ Approval status for ${user.Email}: ${blockchainApproved} (was: ${user.blockchainApproved})`);
+          // CRITICAL: Once approved on blockchain, status should never revert to false
+          const wasPreviouslyApproved = user.blockchainApproved === true;
 
-            // CRITICAL: Once approved on blockchain, status should never revert to false
-            // This prevents approved users from appearing as "Not approved" due to RPC issues
-            const wasPreviouslyApproved = user.blockchainApproved === true;
-
-            if (wasPreviouslyApproved && !blockchainApproved) {
-              console.warn(`⚠️ WARNING: User ${user.Email} was previously approved but blockchain check returned false. This may indicate an RPC issue. Keeping approved status.`);
-              results.push({ ...user, blockchainApproved: true, pendingConfirmation: false });
-            } else if (pendingApprovals[user.WalletAddress] && !blockchainApproved) {
-              console.log(`⏳ Keeping ${user.Email} in pending state (transaction not yet mined)`);
-              results.push({ ...user, blockchainApproved: null, pendingConfirmation: true });
-            } else {
-              // Update persisted approvals when status is confirmed
-              if (blockchainApproved === true && user.WalletAddress) {
-                const persistedApprovals = getPersistedApprovals();
-                persistedApprovals[user.WalletAddress] = true;
-                setPersistedApprovals(persistedApprovals);
-                console.log(`💾 Persisted approval status for ${user.Email}`);
-              }
-              results.push({ ...user, blockchainApproved, pendingConfirmation: false });
+          if (wasPreviouslyApproved && !blockchainApproved) {
+            console.warn(`⚠️ WARNING: User ${user.Email} was previously approved but blockchain check returned false. Keeping approved status.`);
+            return { ...user, blockchainApproved: true, pendingConfirmation: false };
+          } else if (pendingApprovals[user.WalletAddress] && !blockchainApproved) {
+            console.log(`⏳ Keeping ${user.Email} in pending state`);
+            return { ...user, blockchainApproved: null, pendingConfirmation: true };
+          } else {
+            // Update persisted approvals when status is confirmed
+            if (blockchainApproved === true && user.WalletAddress) {
+              const persistedApprovals = getPersistedApprovals();
+              persistedApprovals[user.WalletAddress] = true;
+              setPersistedApprovals(persistedApprovals);
             }
-
-            // Small delay between checks to be gentle on the RPC endpoint
-            await new Promise(resolve => setTimeout(resolve, 200));
-          } catch (err) {
-            console.error(`❌ Failed to check approval for ${user.Email}:`, err);
-            // If there's a pending approval, show as pending even if check fails
-            if (pendingApprovals[user.WalletAddress]) {
-              console.log(`⏳ Keeping ${user.Email} in pending state (check failed but transaction sent)`);
-              results.push({ ...user, blockchainApproved: null, pendingConfirmation: true });
-            } else {
-              results.push(user);
-            }
+            return { ...user, blockchainApproved, pendingConfirmation: false };
           }
+        } catch (err) {
+          console.error(`❌ Failed to check approval for ${user.Email}:`, err);
+          // If there's a pending approval, show as pending even if check fails
+          if (pendingApprovals[user.WalletAddress]) {
+            return { ...user, blockchainApproved: null, pendingConfirmation: true };
+          }
+          return user;
         }
+      };
 
-        return results;
-      })();
+      // Process users in parallel batches (max 5 concurrent checks)
+      const batchSize = 5;
+      const results: UserWithStatus[] = [];
+      
+      for (let i = 0; i < currentUsers.length; i += batchSize) {
+        const batch = currentUsers.slice(i, i + batchSize);
+        const batchResults = await Promise.all(batch.map(checkUserStatus));
+        results.push(...batchResults);
+        
+        // Update UI incrementally as batches complete
+        setUsers(prevUsers => {
+          const updated = [...prevUsers];
+          batchResults.forEach(checkedUser => {
+            const index = updated.findIndex(u => u.ID === checkedUser.ID);
+            if (index !== -1) {
+              updated[index] = checkedUser;
+            }
+          });
+          return updated;
+        });
+      }
 
-      const overallTimeoutPromise = new Promise<UserWithStatus[]>((_, reject) =>
-        setTimeout(() => reject(new Error('Overall blockchain check timeout')), 15000)
-      );
-
-      const updatedUsers = await Promise.race([checkAllPromise, overallTimeoutPromise]);
       console.log('✅ Blockchain status check completed');
-      return updatedUsers;
+      return results;
 
     } catch (err) {
       console.error('❌ Blockchain status check failed:', err);
@@ -264,6 +282,9 @@ function AdminManageUsers() {
     setError("");
 
     try {
+      // Clear persisted approvals to ensure fresh blockchain checks
+      clearPersistedApprovals();
+
       // Fetch real users from the backend API
       const usersResponse = await api.getUsers();
 
@@ -279,32 +300,17 @@ function AdminManageUsers() {
 
       console.log('📋 Created sample users:', sampleUsers.length);
 
-      // Load persisted approval status
-      const persistedApprovals = getPersistedApprovals();
-      console.log('📚 Loaded persisted approvals:', persistedApprovals);
-
-      // Create users with initial state, preserving existing blockchain approval status if available
+      // Create users with initial state - always start with null blockchain status
+      // This ensures we always check the blockchain for the most current approval status
       const usersWithInitialState: UserWithStatus[] = sampleUsers.map(user => {
-        // Try to find existing user with the same ID to preserve blockchain status
+        // Try to find existing user with the same ID to preserve UI state only
         const existingUser = users.find(u => u.ID === user.ID);
-
-        // First check existing state, then persisted state, then default to null
-        let preservedStatus = existingUser?.blockchainApproved ?? null;
-
-        // If no existing state, check persisted approvals
-        if (preservedStatus === null && user.WalletAddress) {
-          preservedStatus = persistedApprovals[user.WalletAddress] ?? null;
-          if (preservedStatus === true) {
-            console.log(`💾 Restored approved status for ${user.Email} from localStorage`);
-          }
-        } else if (existingUser && existingUser.blockchainApproved === true) {
-          console.log(`🛡️ Preserving approved status for ${user.Email}`);
-        }
 
         return {
           ...user,
-          blockchainApproved: preservedStatus,
+          blockchainApproved: null, // Always start with null to force blockchain check
           approving: false, // Reset approving state
+          rejecting: false, // Reset rejecting state
           pendingConfirmation: existingUser?.pendingConfirmation ?? false
         };
       });
@@ -314,16 +320,16 @@ function AdminManageUsers() {
       console.log('📋 Setting initial users without blockchain status');
       setUsers(usersWithInitialState);
 
-      // Check blockchain status asynchronously if wallet is available
-      // Prioritize users that don't have persisted approval status
+      // Check blockchain status asynchronously - use admin wallet if MetaMask not connected
       const usersNeedingCheck = usersWithInitialState.filter(user =>
         user.WalletAddress &&
         user.WalletAddress.trim() !== "" &&
         user.blockchainApproved === null
       );
 
-      if (usersNeedingCheck.length > 0 && isConnected && provider) {
-        console.log(`🌐 Starting async blockchain status check for ${usersNeedingCheck.length} users without persisted status...`);
+      if (usersNeedingCheck.length > 0) {
+        console.log(`🌐 Starting async blockchain status check for ${usersNeedingCheck.length} users...`);
+        // Start blockchain check immediately (will use admin wallet if MetaMask not connected)
         checkBlockchainStatus(usersNeedingCheck).then(checkedUsers => {
           console.log('✅ Async blockchain check completed, updating users');
           // Update the main users list with the checked results
@@ -335,10 +341,8 @@ function AdminManageUsers() {
           console.error('❌ Async blockchain check failed:', err);
           // Keep users as-is if blockchain check fails
         });
-      } else if (usersNeedingCheck.length === 0) {
-        console.log('ℹ️ All users have persisted approval status, skipping blockchain check');
       } else {
-        console.log('⚠️ Wallet not connected, blockchain status will update when connected');
+        console.log('ℹ️ No users need blockchain status check');
       }
 
       // Force loading to complete after a maximum time
@@ -443,7 +447,19 @@ function AdminManageUsers() {
     } catch (err: any) {
       console.error("❌ Approval failed:", err);
       console.error("❌ Error details:", err.message);
-      setError(err.message || "Failed to approve user");
+      
+      // Extract error message - handle both string errors and Error objects
+      let errorMessage = err.message || "Failed to approve user";
+      
+      // Provide user-friendly error messages
+      if (errorMessage.includes("approval contract not deployed")) {
+        errorMessage = "Blockchain Error: Approval contract not deployed. Please deploy contracts to enable blockchain functionality.";
+      } else if (errorMessage.includes("Blockchain Error")) {
+        // Keep the blockchain error message as-is
+        errorMessage = errorMessage;
+      }
+      
+      setError(errorMessage);
 
       // Reset pending state on error
       const pendingApprovals = getPendingApprovals();
@@ -454,7 +470,57 @@ function AdminManageUsers() {
         u.ID === user.ID ? { ...u, approving: false, pendingConfirmation: false } : u
       ));
 
-      alert(`❌ Approval failed: ${err.message}`);
+      alert(`❌ Approval failed: ${errorMessage}`);
+    }
+  };
+
+  const handleRejectUser = async (user: UserWithStatus) => {
+    // Check if user is authenticated
+    const token = localStorage.getItem("token");
+    if (!token) {
+      alert("You are not logged in. Please log in as an admin first.");
+      return;
+    }
+
+    // Check if user has a valid wallet address
+    if (!user.WalletAddress || user.WalletAddress.trim() === "") {
+      alert("Cannot reject user: No wallet address is set for this user.");
+      return;
+    }
+
+    setUsers(prev => prev.map(u =>
+      u.ID === user.ID ? { ...u, rejecting: true } : u
+    ));
+
+    try {
+      console.log(`🔄 Calling backend API to reject user ${user.WalletAddress}`);
+      console.log(`📋 User details: ${user.Email} (${user.WalletAddress})`);
+
+      const response = await api.rejectUser(user.WalletAddress);
+      console.log('✅ Backend API response:', response);
+
+      // Update user status immediately since rejection is database-only
+      setUsers(prev => prev.map(u =>
+        u.ID === user.ID ? {
+          ...u,
+          blockchainApproved: false,
+          rejecting: false,
+          pendingConfirmation: false
+        } : u
+      ));
+
+      alert(`✅ User rejection successful!`);
+
+    } catch (err: any) {
+      console.error("❌ Rejection failed:", err);
+      console.error("❌ Error details:", err.message);
+      setError(err.message || "Failed to reject user");
+
+      setUsers(prev => prev.map(u =>
+        u.ID === user.ID ? { ...u, rejecting: false } : u
+      ));
+
+      alert(`❌ Rejection failed: ${err.message}`);
     }
   };
 
@@ -463,6 +529,12 @@ function AdminManageUsers() {
       <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-blue-500/20 text-blue-400">
         <RefreshCw size={12} className="animate-spin" />
         Approving...
+      </span>
+    );
+    if (user.rejecting) return (
+      <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400">
+        <RefreshCw size={12} className="animate-spin" />
+        Rejecting...
       </span>
     );
     if (user.pendingConfirmation) return (
@@ -484,7 +556,7 @@ function AdminManageUsers() {
     return (
       <span className="flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-400">
         <XCircle size={12} />
-        Not Approved
+        Rejected
       </span>
     );
   };
@@ -498,32 +570,50 @@ function AdminManageUsers() {
             Approve users to enable platform participation
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="md"
-          onClick={async () => {
-            if (users.length > 0) {
-              console.log('🔄 Manual refresh triggered');
-              try {
-                const updatedUsers = await checkBlockchainStatus(users);
-                console.log('✅ Manual refresh completed');
-                setUsers(updatedUsers);
-              } catch (err) {
-                console.error('❌ Manual refresh failed:', err);
-              }
-            } else {
-              loadUsers();
-            }
-          }}
-          disabled={loading || isCheckingBlockchain}
-          className="border-[#262626] text-white hover:bg-[#1a1a1a]"
-        >
-          <RefreshCw
-            size={18}
-            className={`mr-2 ${loading || isCheckingBlockchain ? "animate-spin" : ""}`}
-          />
-          {isCheckingBlockchain ? "Checking..." : "Refresh"}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="md"
+            onClick={async () => {
+              // Clear ALL cached data aggressively
+              console.log('🔄 Manual refresh triggered - clearing ALL cache');
+              clearPersistedApprovals();
+
+              // Also clear any cached approval status in memory
+              setUsers(prevUsers => prevUsers.map(u => ({
+                ...u,
+                blockchainApproved: null,
+                pendingConfirmation: false,
+                approving: false,
+                rejecting: false
+              })));
+
+              // Force reload all users
+              await loadUsers();
+            }}
+            disabled={loading || isCheckingBlockchain}
+            className="border-[#262626] text-white hover:bg-[#1a1a1a]"
+          >
+            <RefreshCw
+              size={18}
+              className={`mr-2 ${loading || isCheckingBlockchain ? "animate-spin" : ""}`}
+            />
+            {isCheckingBlockchain ? "Checking..." : "Refresh"}
+          </Button>
+
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => {
+              console.log('🧹 Clearing all cached approval data...');
+              clearPersistedApprovals();
+              alert('✅ Cleared all cached approval data. Click Refresh to reload fresh data.');
+            }}
+            className="border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20"
+          >
+            Clear Cache
+          </Button>
+        </div>
       </header>
 
       {error && (
@@ -649,8 +739,10 @@ function AdminManageUsers() {
                   <div className="flex items-center gap-3">
                     {getStatusBadge(user)}
 
-                    {user.blockchainApproved ? (
+                    {user.blockchainApproved === true ? (
                       <span className="text-xs text-green-400">Already Approved</span>
+                    ) : user.blockchainApproved === false ? (
+                      <span className="text-xs text-red-400">Rejected</span>
                     ) : user.pendingConfirmation ? (
                       <div className="flex gap-2 items-center">
                         <span className="text-yellow-400 text-sm">Transaction Pending...</span>
@@ -664,15 +756,26 @@ function AdminManageUsers() {
                         </Button>
                       </div>
                     ) : user.WalletAddress && user.WalletAddress.trim() !== "" ? (
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        onClick={() => handleApproveUser(user)}
-                        disabled={user.approving}
-                        className="bg-[#6d41ff] hover:bg-[#5b2fff] text-white disabled:opacity-50"
-                      >
-                        {user.approving ? "Approving..." : "Approve"}
-                      </Button>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleApproveUser(user)}
+                          disabled={user.approving || user.rejecting}
+                          className="bg-[#6d41ff] hover:bg-[#5b2fff] text-white disabled:opacity-50"
+                        >
+                          {user.approving ? "Approving..." : "Approve"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleRejectUser(user)}
+                          disabled={user.approving || user.rejecting}
+                          className="border-red-500/50 bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+                        >
+                          {user.rejecting ? "Rejecting..." : "Reject"}
+                        </Button>
+                      </div>
                     ) : (
                       <span className="text-gray-500 text-sm">No wallet address</span>
                     )}

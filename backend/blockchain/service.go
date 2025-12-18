@@ -3,7 +3,9 @@ package blockchain
 import (
 	"backend/blockchain/approval_service"
 	"backend/blockchain/platform_registry"
+	"backend/blockchain/property_asset"
 	"backend/blockchain/property_factory"
+	"backend/blockchain/property_token"
 	"backend/blockchain/revenue_distribution"
 	"context"
 	"crypto/ecdsa"
@@ -37,7 +39,7 @@ type ChainService struct {
 func NewChainServiceEnv() (*ChainService, error) {
 	rpcURL := os.Getenv("SEPOLIA_RPC")
 	if rpcURL == "" {
-		rpcURL = "ws://127.0.0.1:8545" // Must use WS for event subscriptions
+		rpcURL = "http://127.0.0.1:8545" // Use HTTP for local development
 	}
 
 	privateKey := os.Getenv("PRIVATE_KEY_2")
@@ -81,34 +83,89 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	registryAddress := common.HexToAddress(registryAddr)
 	registry, err := platform_registry.NewPlatformRegistry(registryAddress, client)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to connect to registry contract at %s: %v", registryAddr, err)
+		log.Printf("⚠️ Blockchain service will work in limited mode - contracts not deployed yet")
+		return &ChainService{
+			Client:     client,
+			PrivateKey: privateKey,
+			ChainID:    chainID,
+			// Contract instances will be nil, methods will need to handle this
+		}, nil
 	}
 
 	factoryAddr, err := registry.GetPropertyFactory(nil)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to get factory address from registry: %v", err)
+		return &ChainService{
+			Client:     client,
+			PrivateKey: privateKey,
+			ChainID:    chainID,
+			Registry:   registry,
+			// Other contracts will be nil
+		}, nil
 	}
 	factory, err := property_factory.NewPropertyFactory(factoryAddr, client)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to connect to factory contract: %v", err)
+		return &ChainService{
+			Client:     client,
+			PrivateKey: privateKey,
+			ChainID:    chainID,
+			Registry:   registry,
+			// Factory and other contracts will be nil
+		}, nil
 	}
 
 	approvalAddr, err := registry.GetApprovalService(nil)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to get approval service address from registry: %v", err)
+		return &ChainService{
+			Client:     client,
+			PrivateKey: privateKey,
+			ChainID:    chainID,
+			Registry:   registry,
+			PropertyFactory: factory,
+			// Approval and other contracts will be nil
+		}, nil
 	}
 	approval, err := approval_service.NewApprovalService(approvalAddr, client)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to connect to approval service contract: %v", err)
+		return &ChainService{
+			Client:     client,
+			PrivateKey: privateKey,
+			ChainID:    chainID,
+			Registry:   registry,
+			PropertyFactory: factory,
+			// Approval and other contracts will be nil
+		}, nil
 	}
 
 	revenueAddr, err := registry.GetRevenueDistribution(nil)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to get revenue distribution address from registry: %v", err)
+		return &ChainService{
+			Client:     client,
+			PrivateKey: privateKey,
+			ChainID:    chainID,
+			Registry:   registry,
+			PropertyFactory: factory,
+			Approval:   approval,
+			// Revenue contract will be nil
+		}, nil
 	}
 	revenue, err := revenue_distribution.NewRevenueDistribution(revenueAddr, client)
 	if err != nil {
-		return nil, err
+		log.Printf("⚠️ Failed to connect to revenue distribution contract: %v", err)
+		return &ChainService{
+			Client:     client,
+			PrivateKey: privateKey,
+			ChainID:    chainID,
+			Registry:   registry,
+			PropertyFactory: factory,
+			Approval:   approval,
+			// Revenue contract will be nil
+		}, nil
 	}
 
 	return &ChainService{
@@ -150,6 +207,11 @@ func (s *ChainService) WaitForTx(txHash common.Hash) (*types.Receipt, error) {
 
 // CreateProperty deploys a new property via the Factory
 func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, valuation, supply int64) (*types.Transaction, error) {
+	if s.PropertyFactory == nil {
+		log.Printf("⚠️ Property factory contract not available - blockchain service in limited mode")
+		return nil, fmt.Errorf("property factory contract not deployed - deploy contracts to enable property creation")
+	}
+
 	auth, err := s.GetTransactor()
 	if err != nil {
 		return nil, err
@@ -175,6 +237,11 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 
 // DistributeRevenue deposits funds into the Revenue contract
 func (s *ChainService) DistributeRevenue(tokenAddrStr, stablecoinAddrStr string, amount int64) (*types.Transaction, error) {
+	if s.RevenueDistribution == nil {
+		log.Printf("⚠️ Revenue distribution contract not available - blockchain service in limited mode")
+		return nil, fmt.Errorf("revenue distribution contract not deployed - deploy contracts to enable revenue distribution")
+	}
+
 	auth, err := s.GetTransactor()
 	if err != nil {
 		return nil, err
@@ -190,6 +257,11 @@ func (s *ChainService) DistributeRevenue(tokenAddrStr, stablecoinAddrStr string,
 // ApproveUser allows a specific wallet address to participate in the platform
 func (s *ChainService) ApproveUser(userAddressStr string) (*types.Transaction, error) {
 	log.Printf("🔄 Starting approval for address: %s", userAddressStr)
+
+	if s.Approval == nil {
+		log.Printf("⚠️ Approval contract not available - blockchain service in limited mode")
+		return nil, fmt.Errorf("approval contract not deployed - deploy contracts to enable blockchain functionality")
+	}
 
 	auth, err := s.GetTransactor()
 	if err != nil {
@@ -224,10 +296,102 @@ func (s *ChainService) ApproveUser(userAddressStr string) (*types.Transaction, e
 
 // IsApproved checks if a user address is approved
 func (s *ChainService) IsApproved(userAddressStr string) (bool, error) {
+	if s.Approval == nil {
+		log.Printf("⚠️ Approval contract not available - returning false for approval check")
+		return false, nil // Return false if contract not available
+	}
+
 	userAddr := common.HexToAddress(userAddressStr)
 	approved, err := s.Approval.Check(nil, userAddr)
 	if err != nil {
 		return false, fmt.Errorf("failed to check approval status: %v", err)
 	}
 	return approved, nil
+}
+
+// ApproveProperty sets a property status to Active on-chain
+func (s *ChainService) ApproveProperty(propertyAssetAddrStr string) (*types.Transaction, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("blockchain client not available")
+	}
+
+	propertyAssetAddr := common.HexToAddress(propertyAssetAddrStr)
+	propertyAsset, err := property_asset.NewPropertyAsset(propertyAssetAddr, s.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to property asset contract: %v", err)
+	}
+
+	auth, err := s.GetTransactor()
+	if err != nil {
+		return nil, err
+	}
+
+	// Status.Active = 0
+	return propertyAsset.SetStatus(auth, 0)
+}
+
+// RejectProperty sets a property status to Closed on-chain
+func (s *ChainService) RejectProperty(propertyAssetAddrStr string) (*types.Transaction, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("blockchain client not available")
+	}
+
+	propertyAssetAddr := common.HexToAddress(propertyAssetAddrStr)
+	propertyAsset, err := property_asset.NewPropertyAsset(propertyAssetAddr, s.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to property asset contract: %v", err)
+	}
+
+	auth, err := s.GetTransactor()
+	if err != nil {
+		return nil, err
+	}
+
+	// Status.Closed = 3
+	return propertyAsset.SetStatus(auth, 3)
+}
+
+// GetTokenBalance gets the token balance for a wallet address
+func (s *ChainService) GetTokenBalance(tokenAddrStr, walletAddrStr string) (*big.Int, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("blockchain client not available")
+	}
+
+	tokenAddr := common.HexToAddress(tokenAddrStr)
+	walletAddr := common.HexToAddress(walletAddrStr)
+
+	token, err := property_token.NewPropertyToken(tokenAddr, s.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to property token contract: %v", err)
+	}
+
+	balance, err := token.BalanceOf(nil, walletAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token balance: %v", err)
+	}
+
+	return balance, nil
+}
+
+// TransferTokens transfers tokens from the backend wallet to another address
+// Note: This requires the backend wallet to have tokens and approval
+func (s *ChainService) TransferTokens(tokenAddrStr, toAddrStr string, amount *big.Int) (*types.Transaction, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("blockchain client not available")
+	}
+
+	tokenAddr := common.HexToAddress(tokenAddrStr)
+	toAddr := common.HexToAddress(toAddrStr)
+
+	token, err := property_token.NewPropertyToken(tokenAddr, s.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to property token contract: %v", err)
+	}
+
+	auth, err := s.GetTransactor()
+	if err != nil {
+		return nil, err
+	}
+
+	return token.Transfer(auth, toAddr, amount)
 }

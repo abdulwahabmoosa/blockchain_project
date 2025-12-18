@@ -15,6 +15,14 @@ const (
 	RoleUser  UserRole = "user"
 )
 
+// ApprovalStatus represents the approval status for users and properties.
+type ApprovalStatus string
+
+const (
+	ApprovalApproved ApprovalStatus = "approved"
+	ApprovalRejected ApprovalStatus = "rejected"
+)
+
 type User struct {
 	ID            uuid.UUID `gorm:"type:uuid;primaryKey"`                    // Maps to id (UUID/INT), using UUID for consistency
 	WalletAddress string    `gorm:"type:varchar(100);unique;not null;index"` // MUST be unique, links to on-chain addresses
@@ -40,6 +48,7 @@ const (
 
 type Property struct {
 	ID                  uuid.UUID      `gorm:"type:uuid;primaryKey"`                  // Maps to id (UUID/INT)
+	Name                string         `gorm:"type:varchar(255)"`                      // Property name
 	OnchainAssetAddress string         `gorm:"type:varchar(100);not null"`            // PropertyAsset (ERC721) contract address
 	OnchainTokenAddress string         `gorm:"type:varchar(100);not null"`            // PropertyToken (ERC20) contract address
 	OwnerWallet         string         `gorm:"type:varchar(100);not null;index"`      // FK relationship with User (Owner)
@@ -57,6 +66,8 @@ type PropertyDocument struct {
 	PropertyID uuid.UUID `gorm:"type:uuid;not null;index"` // FK(properties.id)
 	FileUrl    string    `gorm:"type:text;not null"`
 	FileHash   string    `gorm:"type:varchar(255);not null"` // Hash must match on-chain hash
+	Name       string    `gorm:"type:varchar(255);not null"` // File name
+	Type       string    `gorm:"type:varchar(100);not null"` // Document type
 	UploadedAt time.Time
 	// Relationships
 	Property Property `gorm:"foreignKey:PropertyID"`
@@ -96,11 +107,22 @@ const (
 	TxTypeTransferToken  TransactionType = "transfer_token"
 )
 
+// TransactionStatus represents the status of blockchain transactions.
+type TransactionStatus string
+
+const (
+	TxStatusPending   TransactionStatus = "pending"
+	TxStatusConfirmed TransactionStatus = "confirmed"
+	TxStatusFailed    TransactionStatus = "failed"
+)
+
 type Transaction struct {
-	ID            uuid.UUID       `gorm:"type:uuid;primaryKey"`
-	WalletAddress string          `gorm:"type:varchar(100);not null;index"` // Who performed the action
-	Type          TransactionType `gorm:"type:transaction_type;not null"`
-	TxHash        string          `gorm:"type:varchar(100)"` // Blockchain transaction hash
-	Details       string          `gorm:"type:json"`         // JSON column for extra metadata
+	ID            uuid.UUID         `gorm:"type:uuid;primaryKey"`
+	WalletAddress string            `gorm:"type:varchar(100);not null;index"` // Who performed the action
+	Type          TransactionType   `gorm:"type:transaction_type;not null"`
+	Status        TransactionStatus `gorm:"type:transaction_status;default:'pending'"` // Transaction status
+	TxHash        string            `gorm:"type:varchar(100)"`                         // Blockchain transaction hash
+	Details       string            `gorm:"type:json"`                                 // JSON column for extra metadata
 	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }

@@ -4,7 +4,7 @@ import { useParams, Link as RouterLink, useNavigate } from "react-router-dom";
 import { Navbar } from "../Components/organisms/Navbar";
 import { Button } from "../Components/atoms/Button";
 import { api } from "../lib/api";
-import type { Property } from "../types";
+import type { Property, PropertyMetadata } from "../types";
 import { useWallet } from "../hooks/useWallet";
 import {
   getTokenBalance,
@@ -36,6 +36,8 @@ export default function PropertyDetailsPage() {
   const [transferAmount, setTransferAmount] = useState(""); // Transfer amount
   const [transferring, setTransferring] = useState(false); // Transfer loading
   const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
+  const [metadata, setMetadata] = useState<PropertyMetadata | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(false);
   const { isConnected, address, provider, signer, connectRegisteredWallet } = useWallet();
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
@@ -159,6 +161,26 @@ export default function PropertyDetailsPage() {
     checkApproval();
   }, [isConnected, address, provider]);
 
+  // Fetch property metadata
+  useEffect(() => {
+    const fetchMetadata = async () => {
+      if (!property?.ID) return;
+
+      setMetadataLoading(true);
+      try {
+        const metadataData = await api.getPropertyMetadata(property.ID);
+        setMetadata(metadataData);
+      } catch (err) {
+        console.log("No metadata available or failed to fetch:", err);
+        setMetadata(null);
+      } finally {
+        setMetadataLoading(false);
+      }
+    };
+
+    fetchMetadata();
+  }, [property?.ID]);
+
   const handleClaimRevenue = async (distributionId: number) => {
     if (!signer) {
       setError("Please connect your wallet");
@@ -257,9 +279,9 @@ export default function PropertyDetailsPage() {
     );
   }
 
-  // Placeholder data for missing fields
-  const title = `Property #${property.ID.substring(0, 8)}`;
-  const description = "No description available for this property.";
+  // Use property name if available, otherwise use ID
+  const title = property.Name || `Property #${property.ID.substring(0, 8)}`;
+  const description = metadata?.description || "No description available for this property.";
   const features = ["Tokenized Asset", "Blockchain Verified", "Instant Settlement"];
   const amenities = [
     `Valuation: ${property.Valuation} ETH`,
@@ -291,27 +313,124 @@ export default function PropertyDetailsPage() {
             </div>
           </div>
 
+          {/* Property Metadata */}
+          {metadata && (
+            <div className="bg-[#1a1a1a] border border-[#262626] rounded-2xl p-6 space-y-4">
+              <h2 className="text-xl font-semibold">Property Details</h2>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-gray-400">Description</p>
+                    <p className="text-white">{metadata.description || "No description available"}</p>
+                  </div>
+                  {metadata.location && (
+                    <div>
+                      <p className="text-sm text-gray-400">Location</p>
+                      <p className="text-white">{metadata.location}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm text-gray-400">Metadata Hash</p>
+                    <p className="text-xs font-mono text-gray-300 break-all">{property.MetadataHash}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">IPFS Gateway</p>
+                    <a
+                      href={`https://gateway.pinata.cloud/ipfs/${property.MetadataHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#6d41ff] hover:text-[#5b2fff] text-sm"
+                    >
+                      View on IPFS ↗
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Image Gallery */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 h-[400px] md:h-[500px]">
-            <div className="md:col-span-2 md:row-span-2 rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
-               <GradientThumb />
-               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <span className="bg-black/50 px-4 py-2 rounded-lg backdrop-blur-sm">Main Image</span>
-               </div>
+          {metadata?.images && metadata.images.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 h-[400px] md:h-[500px]">
+              <div className="md:col-span-2 md:row-span-2 rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <img
+                  src={metadata.images[0]}
+                  alt="Property main image"
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.currentTarget.style.display = 'none';
+                    e.currentTarget.nextElementSibling!.classList.remove('hidden');
+                  }}
+                />
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
+                  <GradientThumb />
+                  <span className="absolute bg-black/50 px-4 py-2 rounded-lg backdrop-blur-sm">Image not available</span>
+                </div>
+              </div>
+              {metadata.images.slice(1, 4).map((image, index) => (
+                <div key={index} className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                  <img
+                    src={image}
+                    alt={`Property image ${index + 2}`}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      e.currentTarget.nextElementSibling!.classList.remove('hidden');
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
+                    <GradientThumb />
+                  </div>
+                </div>
+              ))}
+              {metadata.images.length > 4 && (
+                <div className="md:col-span-2 rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                  <img
+                    src={metadata.images[4]}
+                    alt="Property image 5"
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      e.currentTarget.nextElementSibling!.classList.remove('hidden');
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
+                    <GradientThumb />
+                    {metadata.images.length > 5 && (
+                      <span className="absolute bg-black/50 px-4 py-2 rounded-lg backdrop-blur-sm">
+                        +{metadata.images.length - 5} more
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
-               <GradientThumb />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 h-[400px] md:h-[500px]">
+              <div className="md:col-span-2 md:row-span-2 rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <span className="bg-black/50 px-4 py-2 rounded-lg backdrop-blur-sm">
+                    {metadataLoading ? "Loading images..." : "No images available"}
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+              </div>
+              <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+              </div>
+              <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+              </div>
+              <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+              </div>
             </div>
-            <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
-               <GradientThumb />
-            </div>
-             <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
-               <GradientThumb />
-            </div>
-             <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
-               <GradientThumb />
-            </div>
-          </div>
+          )}
         </section>
 
         {/* Details Grid */}

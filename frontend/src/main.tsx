@@ -25,6 +25,7 @@ import MyAccount from "./Pages/MyAccount";
 import { AdminDashboardLayout } from "./Components/organisms/AdminDashboardLayout";
 import AdminDashboardHome from "./Pages/AdminDashboardHome";
 import AdminManageUsers from "./Pages/AdminManageUsers";
+import AdminManageProperties from "./Pages/AdminManageProperties";
 import AdminCreateProperty from "./Pages/AdminCreateProperty";
 
 createRoot(document.getElementById("root")!).render(
@@ -67,6 +68,7 @@ createRoot(document.getElementById("root")!).render(
             <Route index element={<AdminDashboardHome />} />
             <Route path="create-property" element={<AdminCreateProperty />} />
             <Route path="users" element={<AdminManageUsers />} />
+            <Route path="properties" element={<AdminManageProperties />} />
             <Route path="wallet" element={<WalletStatus />} />
           </Route>
 

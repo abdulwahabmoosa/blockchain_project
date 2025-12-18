@@ -9,31 +9,59 @@ import (
 	"backend/ipfs"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware" // Ensure you ran: go get github.com/go-chi/cors
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors" // CORS middleware
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator/v10" // Ensure you ran: go get github.com/go-playground/validator/v10
+	"gorm.io/gorm"
 )
 
 // Initialize Validator
 var validate = validator.New()
 
+// Register custom validators
+func init() {
+	// eth_addr validator: checks if string starts with 0x and is 42 chars long (hex)
+	validate.RegisterValidation("eth_addr", func(fl validator.FieldLevel) bool {
+		addr := fl.Field().String()
+		if len(addr) != 42 {
+			return false
+		}
+		if !strings.HasPrefix(addr, "0x") {
+			return false
+		}
+		// Check if remaining characters are valid hex
+		for _, r := range addr[2:] {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
 // --- Request Payloads with Validation Tags ---
 
 type CreatePropertyRequest struct {
-	OwnerAddress string `json:"owner_address" validate:"required,eth_addr"`
-	Name         string `json:"name" validate:"required,min=3,max=100"`
-	Symbol       string `json:"symbol" validate:"required,alphanum,len=3|len=4"` // 3 or 4 chars, e.g. "PROP"
-	DataHash     string `json:"data_hash" validate:"required,printascii"`        // IPFS hash usually ascii
-	Valuation    int64  `json:"valuation" validate:"required,gt=0"`              // Must be positive
-	TokenSupply  int64  `json:"token_supply" validate:"required,gt=0"`
+	OwnerAddress string  `json:"owner_address" validate:"required,eth_addr"`
+	Name         string  `json:"name" validate:"required,min=3,max=100"`
+	Symbol       string  `json:"symbol" validate:"required,alphanum,len=3-4"` // 3 or 4 chars, e.g. "PROP"
+	DataHash     string  `json:"data_hash" validate:"required,printascii"`        // IPFS hash usually ascii
+	Valuation    float64 `json:"valuation" validate:"required,gt=0"`              // Can be float from frontend
+	TokenSupply  int64   `json:"token_supply" validate:"required,gt=0"`
 }
 
 type DistributeRevenueRequest struct {
@@ -64,7 +92,18 @@ func NewRequestHandler(db *db.Database, chain *blockchain.ChainService) *Request
 func (handler *RequestHandler) Start() {
 	r := chi.NewRouter()
 
+	// CORS middleware configuration
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"}, // Allow frontend dev server and backend
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300, // Maximum value not ignored by any of major browsers
+	}))
+
 	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer) // Recover from panics and return 500
 	r.Use(render.SetContentType(render.ContentTypeJSON))
 
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
@@ -74,21 +113,31 @@ func (handler *RequestHandler) Start() {
 	r.Post("/login", handler.Login)
 	r.Post("/register", handler.RegisterUser)
 
+	// Temporarily move upload outside auth for testing
+	r.Post("/upload", handler.UploadMetadata)
+
 	r.Group(func(r chi.Router) {
 		r.Use(auth.Middleware)
 
 		// Property Routes
 		r.Get("/properties", handler.GetProperties)
 		r.Get("/properties/{id}", handler.GetProperty)
+		r.Get("/properties/{id}/metadata", handler.GetPropertyMetadata)
+		r.Get("/properties/{id}/token-balance/{wallet}", handler.GetPropertyTokenBalance)
+		r.Post("/properties/{id}/transfer", handler.TransferPropertyTokens)
 
-		r.Post("/upload", handler.UploadMetadata)
+		r.Put("/users/me", handler.UpdateUserInfo)
+		r.Delete("/users/me", handler.DeleteUser)
+		r.Post("/users/me/reset-password", handler.ResetPassword)
 
 		// Admin Routes
 		r.Group(func(r chi.Router) {
 			r.Use(handler.AdminMiddleware)
 			r.Get("/users", handler.GetUsers)
 			r.Post("/approve-user", handler.ApproveUser)
+			r.Post("/users/approval", handler.UpdateUserApproval)
 			r.Post("/properties", handler.CreateProperty)
+			r.Post("/properties/approval", handler.UpdatePropertyApproval)
 			r.Post("/revenue/distribute", handler.DistributeRevenue)
 		})
 	})
@@ -106,6 +155,11 @@ func (handler *RequestHandler) Start() {
 		}
 	}()
 
+	handler.gracefulShutdown(srv)
+
+}
+
+func (handler *RequestHandler) gracefulShutdown(srv *http.Server) {
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	// catch SIGINT (Ctrl+C) and SIGTERM (Docker stop)
@@ -150,7 +204,7 @@ func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
-	log.Printf("✅ User found in database: ID=%s, Email=%s, Role=%s", user.ID, user.Email, user.Role)
+	log.Printf("✅ User found in database: ID=%s, Email=%s, Role=%s, IsApproved=%t", user.ID, user.Email, user.Role, user.IsApproved)
 
 	token, err := auth.GenerateToken(user.ID, user.Email)
 	if err != nil {
@@ -166,63 +220,236 @@ func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (handler *RequestHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
-	var userDetails auth.RegisterUserPayload
-	if err := json.NewDecoder(r.Body).Decode(&userDetails); err != nil {
-		http.Error(w, "Invalid Request", http.StatusBadRequest)
+func (handler *RequestHandler) UpdateUserInfo(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	// VALIDATION
-	if err := validate.Struct(userDetails); err != nil {
-		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
-		return
+	type UpdateRequest struct {
+		Name  string `json:"name"`
+		Email string `json:"email" validate:"omitempty,email"`
 	}
 
-	exists, err := handler.db.UserExists(userDetails.Email)
-	if exists {
-		http.Error(w, "User Exists", http.StatusBadRequest)
-		return
-	}
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = handler.db.CreateUser(userDetails)
-	if err != nil {
-		http.Error(w, "Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	render.JSON(w, r, map[string]string{"message": "User registered successfully"})
-}
-
-func (handler *RequestHandler) CreateProperty(w http.ResponseWriter, r *http.Request) {
-	var req CreatePropertyRequest
+	var req UpdateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid Request", http.StatusBadRequest)
+		http.Error(w, "Invalid Body", http.StatusBadRequest)
 		return
 	}
 
-	// VALIDATION
-	if err := validate.Struct(req); err != nil {
-		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
-		return
+	if req.Email != "" {
+		if err := validate.Var(req.Email, "email"); err != nil {
+			http.Error(w, "Invalid Email Format", http.StatusBadRequest)
+			return
+		}
 	}
 
-	tx, err := handler.chain.CreateProperty(req.OwnerAddress, req.Name, req.Symbol, req.DataHash, req.Valuation, req.TokenSupply)
-	if err != nil {
-		http.Error(w, "Blockchain Submission Failed: "+err.Error(), http.StatusInternalServerError)
+	if err := handler.db.UpdateUserInfo(claims.UserID.String(), req.Name, req.Email); err != nil {
+		http.Error(w, "DB Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	render.JSON(w, r, map[string]string{
-		"status":  "pending",
-		"message": "Transaction submitted. Waiting for blockchain confirmation.",
-		"tx_hash": tx.Hash().Hex(),
+		"status":  "success",
+		"message": "Profile updated successfully",
 	})
 }
+
+func (handler *RequestHandler) UpdateUserApproval(w http.ResponseWriter, r *http.Request) {
+	type UserApprovalRequest struct {
+		WalletAddress string                `json:"wallet_address"`
+		Status        models.ApprovalStatus `json:"status"`
+	}
+
+	var req UserApprovalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid Body", http.StatusBadRequest)
+		return
+	}
+
+	if req.WalletAddress == "" {
+		http.Error(w, "wallet_address is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Status != models.ApprovalApproved && req.Status != models.ApprovalRejected {
+		http.Error(w, "status must be 'approved' or 'rejected'", http.StatusBadRequest)
+		return
+	}
+
+	var tx *types.Transaction
+	var err error
+
+	switch req.Status {
+	case models.ApprovalApproved:
+		if handler.chain == nil {
+			http.Error(w, "Blockchain service not available - cannot approve users", http.StatusServiceUnavailable)
+			return
+		}
+		tx, err = handler.chain.ApproveUser(req.WalletAddress)
+		if err != nil {
+			http.Error(w, "Blockchain Error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	case models.ApprovalRejected:
+		// Rejection is handled database-only since no blockchain rejection method exists yet
+		// TODO: Add blockchain rejection functionality when available
+		log.Printf("⚠️ User rejection is database-only until blockchain rejection is implemented")
+	}
+
+	// Update database
+	if err := handler.db.UpdateUserApproval(req.WalletAddress, req.Status); err != nil {
+		http.Error(w, "DB Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return appropriate response based on whether blockchain transaction was involved
+	if req.Status == models.ApprovalApproved && tx != nil {
+		render.JSON(w, r, map[string]interface{}{
+			"status":   "pending",
+			"action":   string(req.Status),
+			"tx_hash":  tx.Hash().Hex(),
+			"message":  "Transaction submitted. DB will update upon confirmation.",
+		})
+	} else {
+		render.JSON(w, r, map[string]interface{}{
+			"status":   "success",
+			"action":   string(req.Status),
+			"message":  "User approval status updated in database.",
+		})
+	}
+}
+
+// DeleteUser handles DELETE /users/me
+func (handler *RequestHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := handler.db.DeleteUser(claims.UserID.String()); err != nil {
+		http.Error(w, "DB Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	render.JSON(w, r, map[string]string{
+		"status":  "success",
+		"message": "Account deleted successfully",
+	})
+}
+
+// ResetPassword handles POST /users/me/reset-password
+func (handler *RequestHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	type ResetRequest struct {
+		OldPassword string `json:"old_password" validate:"required"`
+		NewPassword string `json:"new_password" validate:"required,min=6"`
+	}
+
+	var req ResetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid Body", http.StatusBadRequest)
+		return
+	}
+
+	user, err := handler.db.GetUserById(claims.UserID.String())
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	if !auth.CheckPasswordHash(req.OldPassword, user.PasswordHash) {
+		http.Error(w, "Incorrect old password", http.StatusUnauthorized)
+		return
+	}
+
+	// 3. Hash New Password
+	newHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		http.Error(w, "Hashing Error", http.StatusInternalServerError)
+		return
+	}
+
+	// 4. Update DB
+	if err := handler.db.UpdatePassword(claims.UserID.String(), newHash); err != nil {
+		http.Error(w, "DB Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	render.JSON(w, r, map[string]string{
+		"status":  "success",
+		"message": "Password updated successfully",
+	})
+}
+
+func (handler *RequestHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
+	var userDetails auth.RegisterUserPayload
+	if err := json.NewDecoder(r.Body).Decode(&userDetails); err != nil {
+		log.Printf("❌ RegisterUser: Failed to decode request: %v", err)
+		http.Error(w, "Invalid Request", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("📋 RegisterUser: Received registration request for email: %s, wallet: %s", userDetails.Email, userDetails.WalletAddress)
+
+	// VALIDATION
+	if err := validate.Struct(userDetails); err != nil {
+		log.Printf("❌ RegisterUser: Validation failed: %v", err)
+		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Check if email already exists
+	exists, err := handler.db.UserExists(userDetails.Email)
+	if err != nil {
+		log.Printf("❌ RegisterUser: Error checking if user exists: %v", err)
+		http.Error(w, "Server Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if exists {
+		log.Printf("⚠️ RegisterUser: User with email %s already exists", userDetails.Email)
+		http.Error(w, "User Exists", http.StatusBadRequest)
+		return
+	}
+
+	// Check if wallet address already exists
+	_, err = handler.db.GetUserByWallet(userDetails.WalletAddress)
+	if err == nil {
+		log.Printf("⚠️ RegisterUser: User with wallet %s already exists", userDetails.WalletAddress)
+		http.Error(w, "Wallet address already registered", http.StatusBadRequest)
+		return
+	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		log.Printf("❌ RegisterUser: Error checking wallet address: %v", err)
+		http.Error(w, "Server Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// If err is ErrRecordNotFound, continue with registration
+
+	// Create user
+	err = handler.db.CreateUser(userDetails)
+	if err != nil {
+		log.Printf("❌ RegisterUser: Failed to create user: %v", err)
+		// Check for unique constraint violation
+		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "UNIQUE constraint") {
+			http.Error(w, "Email or wallet address already registered", http.StatusBadRequest)
+			return
+		}
+		http.Error(w, "Server Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✅ RegisterUser: User registered successfully: %s", userDetails.Email)
+	render.JSON(w, r, map[string]string{"message": "User registered successfully"})
+}
+
+// CreateProperty is now in property.go - uses multipart form data with files
 
 func (handler *RequestHandler) DistributeRevenue(w http.ResponseWriter, r *http.Request) {
 	var req DistributeRevenueRequest
@@ -274,6 +501,13 @@ func (handler *RequestHandler) ApproveUser(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Check if Approval contract is deployed
+	if handler.chain.Approval == nil {
+		log.Printf("❌ Approval contract not deployed - cannot approve users")
+		http.Error(w, "Blockchain Error: approval contract not deployed - deploy contracts to enable blockchain functionality", http.StatusServiceUnavailable)
+		return
+	}
+
 	log.Printf("🔄 Approving user on blockchain: %s", req.WalletAddress)
 	tx, err := handler.chain.ApproveUser(req.WalletAddress)
 	if err != nil {
@@ -298,24 +532,7 @@ func (handler *RequestHandler) ApproveUser(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-func (handler *RequestHandler) GetProperties(w http.ResponseWriter, r *http.Request) {
-	props, err := handler.db.GetAllProperties()
-	if err != nil {
-		http.Error(w, "Failed to fetch properties", http.StatusInternalServerError)
-		return
-	}
-	render.JSON(w, r, props)
-}
-
-func (handler *RequestHandler) GetProperty(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	prop, err := handler.db.GetPropertyByID(id)
-	if err != nil {
-		http.Error(w, "Property not found", http.StatusNotFound)
-		return
-	}
-	render.JSON(w, r, prop)
-}
+// GetProperties and GetProperty are now in property.go
 
 func (handler *RequestHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := handler.db.GetAllUsers()
@@ -325,6 +542,8 @@ func (handler *RequestHandler) GetUsers(w http.ResponseWriter, r *http.Request) 
 	}
 	render.JSON(w, r, users)
 }
+
+// UpdatePropertyApproval is now in property.go with blockchain integration
 
 // AdminMiddleware ensures the authenticated user has the 'admin' role.
 func (handler *RequestHandler) AdminMiddleware(next http.Handler) http.Handler {
@@ -376,5 +595,131 @@ func (handler *RequestHandler) UploadMetadata(w http.ResponseWriter, r *http.Req
 	render.JSON(w, r, map[string]string{
 		"ipfs_hash": ipfsHash,
 		"url":       "https://gateway.pinata.cloud/ipfs/" + ipfsHash,
+	})
+}
+
+func (handler *RequestHandler) GetPropertyMetadata(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	prop, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	if prop.MetadataHash == "" {
+		http.Error(w, "Property metadata not available", http.StatusNotFound)
+		return
+	}
+
+	// Fetch metadata from IPFS
+	metadataURL := fmt.Sprintf("https://gateway.pinata.cloud/ipfs/%s", prop.MetadataHash)
+	resp, err := http.Get(metadataURL)
+	if err != nil {
+		log.Printf("Failed to fetch metadata from IPFS: %v", err)
+		http.Error(w, "Failed to fetch metadata from IPFS", http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("IPFS gateway returned status %d", resp.StatusCode)
+		http.Error(w, "Metadata not found on IPFS", http.StatusNotFound)
+		return
+	}
+
+	var metadata map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&metadata); err != nil {
+		log.Printf("Failed to parse metadata JSON: %v", err)
+		http.Error(w, "Invalid metadata format", http.StatusInternalServerError)
+		return
+	}
+
+	render.JSON(w, r, metadata)
+}
+
+func (handler *RequestHandler) GetPropertyTokenBalance(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	wallet := chi.URLParam(r, "wallet")
+
+	prop, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	if handler.chain == nil {
+		http.Error(w, "Blockchain service not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	balance, err := handler.chain.GetTokenBalance(prop.OnchainTokenAddress, wallet)
+	if err != nil {
+		log.Printf("Failed to get token balance: %v", err)
+		http.Error(w, "Failed to get token balance: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert from wei (assuming 18 decimals)
+	balanceFloat := new(big.Float).SetInt(balance)
+	divisor := new(big.Float).SetInt(big.NewInt(1000000000000000000)) // 10^18
+	balanceFloat.Quo(balanceFloat, divisor)
+
+	render.JSON(w, r, map[string]string{
+		"balance": balanceFloat.Text('f', 18),
+	})
+}
+
+func (handler *RequestHandler) TransferPropertyTokens(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	type TransferRequest struct {
+		ToAddress string `json:"to_address" validate:"required,eth_addr"`
+		Amount    string `json:"amount" validate:"required"`
+	}
+
+	var req TransferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid Body", http.StatusBadRequest)
+		return
+	}
+
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	prop, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	if handler.chain == nil {
+		http.Error(w, "Blockchain service not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse amount (assuming it's in token units, need to convert to wei)
+	amountFloat, _, err := big.ParseFloat(req.Amount, 10, 256, big.ToNearestEven)
+	if err != nil {
+		http.Error(w, "Invalid amount format", http.StatusBadRequest)
+		return
+	}
+
+	weiMultiplier := big.NewFloat(1000000000000000000) // 10^18
+	amountFloat.Mul(amountFloat, weiMultiplier)
+	amountBig, _ := amountFloat.Int(nil)
+
+	tx, err := handler.chain.TransferTokens(prop.OnchainTokenAddress, req.ToAddress, amountBig)
+	if err != nil {
+		log.Printf("Failed to transfer tokens: %v", err)
+		http.Error(w, "Transfer failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	render.JSON(w, r, map[string]string{
+		"status":  "pending",
+		"tx_hash": tx.Hash().Hex(),
+		"message": "Transfer transaction submitted",
 	})
 }

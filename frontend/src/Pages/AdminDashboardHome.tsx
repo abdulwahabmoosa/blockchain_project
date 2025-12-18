@@ -164,6 +164,15 @@ function AdminDashboardHome() {
           <Button
             variant="outline"
             size="md"
+            onClick={() => navigate("/admin/properties")}
+            className="border-[#262626] bg-[#0f0f0f] text-white hover:bg-[#1a1a1a]"
+          >
+            <Building2 size={18} className="mr-2" />
+            Manage Properties
+          </Button>
+          <Button
+            variant="outline"
+            size="md"
             onClick={() => navigate("/admin/create-property")}
             className="border-[#262626] bg-[#0f0f0f] text-white hover:bg-[#1a1a1a]"
           >

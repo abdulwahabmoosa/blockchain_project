@@ -178,10 +178,10 @@ function UserApprovalManagementPage() {
             console.log(`🔍 Checking approval status for ${user.Email} (${user.WalletAddress})`);
             console.log(`📋 Previous approval status: ${user.blockchainApproved}`);
 
-            // Add timeout to blockchain check
+            // Add timeout to blockchain check - reduced from 3000ms to 1000ms for faster feedback
             const checkPromise = checkApprovalStatus(user.WalletAddress, blockchainProvider!);
             const timeoutPromise = new Promise<boolean>((_, reject) =>
-              setTimeout(() => reject(new Error('Blockchain check timeout')), 3000)
+              setTimeout(() => reject(new Error('Blockchain check timeout')), 1000)
             );
 
             const blockchainApproved = await Promise.race([checkPromise, timeoutPromise]);
@@ -208,17 +208,13 @@ function UserApprovalManagementPage() {
               results.push({ ...user, blockchainApproved, pendingConfirmation: false });
             }
 
-            // Small delay between checks to be gentle on the RPC endpoint
-            await new Promise(resolve => setTimeout(resolve, 200));
+            // Reduced delay between checks for faster processing
+            await new Promise(resolve => setTimeout(resolve, 100));
           } catch (err) {
             console.error(`❌ Failed to check approval for ${user.Email}:`, err);
-            // If there's a pending approval, show as pending even if check fails
-            if (pendingApprovals[user.WalletAddress]) {
-              console.log(`⏳ Keeping ${user.Email} in pending state (check failed but transaction sent)`);
-              results.push({ ...user, blockchainApproved: null, pendingConfirmation: true });
-            } else {
-              results.push(user);
-            }
+            // If blockchain check fails, fall back to database-only approval status
+            console.log(`ℹ️ Blockchain check failed for ${user.Email}, using database status: ${user.IsApproved}`);
+            results.push({ ...user, blockchainApproved: user.IsApproved ? true : false, pendingConfirmation: false });
           }
         }
 

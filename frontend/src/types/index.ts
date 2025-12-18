@@ -15,6 +15,7 @@ export interface User {
 
 export interface Property {
   ID: string;
+  Name?: string;
   OnchainAssetAddress: string;
   OnchainTokenAddress: string;
   OwnerWallet: string;
@@ -50,7 +51,7 @@ export interface CreatePropertyPayload {
   owner_address: string;
   name: string;
   symbol: string;
-  data_hash: string;
+  data_hash: string; // Not used in new API - files are sent directly
   valuation: number;
   token_supply: number;
 }

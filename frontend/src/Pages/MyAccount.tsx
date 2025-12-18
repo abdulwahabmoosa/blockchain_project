@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Button } from "../Components/atoms/Button";
 import type { User as UserType } from "../types";
+import { api } from "../lib/api";
 
 function MyAccount() {
   const navigate = useNavigate();
@@ -65,11 +66,7 @@ function MyAccount() {
     setPasswordLoading(true);
 
     try {
-      // TODO: Implement API call to update password
-      // await api.updatePassword(currentPassword, newPassword);
-
-      // Simulate API call for now (UI-only)
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await api.updatePassword(currentPassword, newPassword);
 
       setPasswordSuccess(true);
       setCurrentPassword("");
@@ -92,11 +89,7 @@ function MyAccount() {
     setDeleteError("");
 
     try {
-      // TODO: Implement API call to delete account
-      // await api.deleteAccount();
-
-      // Simulate API call for now (UI-only)
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await api.deleteAccount();
 
       // Clear local storage and redirect
       localStorage.removeItem("auth");
@@ -375,5 +368,6 @@ function MyAccount() {
 }
 
 export default MyAccount;
+
 
 

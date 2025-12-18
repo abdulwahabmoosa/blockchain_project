@@ -46,9 +46,10 @@ services:
         volumes:
             - ./backend:/app
         environment:
-            <<: *blockchain-env
             DB_URL: postgres://blockchain-db:TP075164@db:5432/db?sslmode=disable
+            PINATA_JWT_TOKEN: ${PINATA_JWT_TOKEN} 
         depends_on:
+            - blockchain
             - db
         command: /bin/sh -c "go mod download && go run main.go"
         ports:

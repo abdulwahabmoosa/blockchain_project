@@ -17,3 +17,4 @@ console.log('Is admin?', wallet2.address.toLowerCase() === adminAddress.toLowerC
 
 console.log('\nExpected admin address:', adminAddress);
 
+

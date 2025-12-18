@@ -34,3 +34,4 @@ console.log('New random address:', newWallet.address);
 console.log('New random private key:', newWallet.privateKey);
 console.log('\n⚠️  IMPORTANT: Replace your environment PRIVATE_KEY with the correct one for the new admin address!');
 
+

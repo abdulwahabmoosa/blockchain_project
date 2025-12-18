@@ -92,3 +92,35 @@ func Upload(file io.Reader, filename string) (string, error) {
 	log.Printf("✅ Upload Success! CID: %s", pinataResp.IpfsHash)
 	return pinataResp.IpfsHash, nil
 }
+
+// Add this struct
+type IPFSFileInfo struct {
+	CID         string `json:"cid"`
+	Url         string `json:"url"`
+	ContentType string `json:"content_type"`
+	Size        int64  `json:"size"`
+}
+
+// Add this function
+func GetFileInfo(cid string) (*IPFSFileInfo, error) {
+	// Use the public gateway to check file stats
+	url := fmt.Sprintf("https://gateway.pinata.cloud/ipfs/%s", cid)
+
+	// Perform a HEAD request (fetches headers only, not body)
+	resp, err := http.Head(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("gateway returned status: %d", resp.StatusCode)
+	}
+
+	return &IPFSFileInfo{
+		CID:         cid,
+		Url:         url,
+		ContentType: resp.Header.Get("Content-Type"),
+		Size:        resp.ContentLength,
+	}, nil
+}

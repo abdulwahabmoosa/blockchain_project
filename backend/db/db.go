@@ -32,6 +32,9 @@ func (db *Database) createEnums() error {
             IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_type') THEN
                 CREATE TYPE transaction_type AS ENUM ('approve_user', 'create_property', 'deposit_revenue', 'claim_revenue', 'transfer_token');
             END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_status') THEN
+                CREATE TYPE transaction_status AS ENUM ('pending', 'confirmed', 'failed');
+            END IF;
         END
         $$;
     `
@@ -100,6 +103,7 @@ func (db *Database) migrate() error {
 	err := db.db.AutoMigrate(
 		&models.User{},
 		&models.Property{},
+		&models.PropertyDocument{},
 		&models.RevenueDistribution{},
 		&models.RevenueClaim{},
 		&models.Transaction{},
@@ -136,7 +140,7 @@ func NewDatabase() (db *Database, err error) {
 func (db *Database) CreateUser(details auth.RegisterUserPayload) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(details.Password), bcrypt.DefaultCost)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to hash password: %w", err)
 	}
 
 	newUser := models.User{
@@ -149,7 +153,12 @@ func (db *Database) CreateUser(details auth.RegisterUserPayload) error {
 		IsApproved:    false, // Default to false until on-chain approval
 	}
 
-	return gorm.G[models.User](db.db).Create(db.ctx, &newUser)
+	// Use WithContext to set the context, then Create
+	result := db.db.WithContext(db.ctx).Create(&newUser)
+	if result.Error != nil {
+		return fmt.Errorf("failed to create user: %w", result.Error)
+	}
+	return nil
 }
 
 func (db *Database) GetUserById(id string) (models.User, error) {
@@ -161,7 +170,12 @@ func (db *Database) GetUserById(id string) (models.User, error) {
 }
 
 func (db *Database) GetUserByWallet(wallet string) (models.User, error) {
-	return gorm.G[models.User](db.db).Where("wallet_address = ?", wallet).First(db.ctx)
+	var user models.User
+	result := db.db.WithContext(db.ctx).Where("wallet_address = ?", wallet).First(&user)
+	if result.Error != nil {
+		return user, result.Error
+	}
+	return user, nil
 }
 
 func (db *Database) GetAllUsers() (result []models.User, err error) {
@@ -169,7 +183,17 @@ func (db *Database) GetAllUsers() (result []models.User, err error) {
 	return
 }
 
-func (db *Database) UpdateUserApproval(wallet string, approved bool) error {
+func (db *Database) UpdateUserApproval(wallet string, status models.ApprovalStatus) error {
+	var approved bool
+	switch status {
+	case models.ApprovalApproved:
+		approved = true
+	case models.ApprovalRejected:
+		approved = false
+	default:
+		return errors.New("invalid approval status")
+	}
+
 	_, err := gorm.G[models.User](db.db).
 		Where("wallet_address = ?", wallet).
 		Update(db.ctx, "is_approved", approved)
@@ -183,7 +207,7 @@ func (db *Database) CreateProperty(prop models.Property) error {
 }
 
 func (db *Database) GetAllProperties() (result []models.Property, err error) {
-	result, err = gorm.G[models.Property](db.db).Find(db.ctx)
+	result, err = gorm.G[models.Property](db.db).Where("status = ?", models.StatusActive).Find(db.ctx)
 	return
 }
 
@@ -201,6 +225,29 @@ func (db *Database) GetPropertyByTokenAddress(addr string) (result models.Proper
 	return
 }
 
+func (db *Database) UpdatePropertyApproval(propertyID string, status models.ApprovalStatus) error {
+	uid, err := uuid.Parse(propertyID)
+	if err != nil {
+		return err
+	}
+
+	// Map ApprovalStatus to PropertyStatus
+	var propertyStatus models.PropertyStatus
+	switch status {
+	case models.ApprovalApproved:
+		propertyStatus = models.StatusActive
+	case models.ApprovalRejected:
+		propertyStatus = models.StatusClosed
+	default:
+		return errors.New("invalid approval status")
+	}
+
+	_, err = gorm.G[models.Property](db.db).
+		Where("id = ?", uid).
+		Update(db.ctx, "status", propertyStatus)
+	return err
+}
+
 // --- Revenue Methods ---
 
 func (db *Database) CreateRevenueDistribution(rev models.RevenueDistribution) error {
@@ -215,6 +262,23 @@ func (db *Database) GetRevenueDistributionBySnapshot(propertyID uuid.UUID, snaps
 	return gorm.G[models.RevenueDistribution](db.db).
 		Where("property_id = ? AND snapshot_id = ?", propertyID, snapshotID).
 		First(db.ctx)
+}
+
+// --- Transaction Methods ---
+
+func (db *Database) CreateTransaction(tx models.Transaction) error {
+	return gorm.G[models.Transaction](db.db).Create(db.ctx, &tx)
+}
+
+func (db *Database) UpdateTransactionStatus(txHash string, status models.TransactionStatus) error {
+	_, err := gorm.G[models.Transaction](db.db).
+		Where("tx_hash = ?", txHash).
+		Update(db.ctx, "status", status)
+	return err
+}
+
+func (db *Database) GetTransactionByHash(txHash string) (models.Transaction, error) {
+	return gorm.G[models.Transaction](db.db).Where("tx_hash = ?", txHash).First(db.ctx)
 }
 
 // --- Auth Helpers ---
@@ -236,4 +300,42 @@ func (db *Database) GetUserByCredentials(creds auth.LoginCredentials) (user mode
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(creds.Password))
 	return
+}
+
+func (db *Database) UpdateUserInfo(userID string, name string, email string) error {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return err
+	}
+
+	user := models.User{}
+	if name != "" {
+		user.Name = name
+	}
+	if email != "" {
+		user.Email = email
+	}
+
+	_, err = gorm.G[models.User](db.db).Where("id = ?", uid).Updates(db.ctx, user)
+	return err
+}
+
+func (db *Database) DeleteUser(userID string) error {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = gorm.G[models.User](db.db).Where("id = ?", uid).Delete(db.ctx)
+	return err
+}
+
+func (db *Database) UpdatePassword(userID string, newHash string) error {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = gorm.G[models.User](db.db).Where("id = ?", uid).Update(db.ctx, "password_hash", newHash)
+	return err
 }

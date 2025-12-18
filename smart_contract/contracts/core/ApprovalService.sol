@@ -17,6 +17,8 @@ contract ApprovalService is AccessControl {
 
     event Approved(address indexed user, address indexed admin);
     event Revoked(address indexed user, address indexed admin);
+    // Emitted when a user is explicitly rejected (on-chain mirror of backend rejection state)
+    event UserRejected(address indexed user);
 
     constructor(address initialAdmin) {
         // Grant admin role to the specified wallet
@@ -37,6 +39,17 @@ contract ApprovalService is AccessControl {
     function revoke(address user) external onlyAdmin {
         isApproved[user] = false;
         emit Revoked(user, msg.sender);
+    }
+
+    /**
+     * @dev Explicitly mark a user as rejected on-chain.
+     * This is a thin wrapper around {revoke} so existing logic remains unchanged,
+     * while providing a dedicated event for off-chain listeners.
+     */
+    function rejectUser(address user) external onlyAdmin {
+        isApproved[user] = false;
+        emit Revoked(user, msg.sender);
+        emit UserRejected(user);
     }
 
     // Optional: add or remove admins

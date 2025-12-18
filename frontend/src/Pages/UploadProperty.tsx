@@ -15,36 +15,23 @@ function UploadProperty() {
   // Form state
   const [name, setName] = useState("");
   const [valuation, setValuation] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [uploadedHash, setUploadedHash] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
   // Computed values
   const symbol = "ETH";
   const tokenSupply = valuation ? Math.floor(parseFloat(valuation) / 10) : 0;
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (!selectedFile) return;
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length === 0) return;
 
-    setFile(selectedFile);
-    setUploading(true);
+    setFiles(selectedFiles);
     setError("");
-
-    try {
-      const response = await api.uploadFile(selectedFile);
-      setUploadedHash(response.ipfs_hash);
-    } catch (err: any) {
-      setError("Failed to upload file: " + err.message);
-      setFile(null);
-    } finally {
-      setUploading(false);
-    }
   };
 
-  const removeFile = () => {
-    setFile(null);
-    setUploadedHash("");
+  const removeFile = (index: number) => {
+    setFiles(files.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -60,22 +47,26 @@ function UploadProperty() {
       }
       const user: User = JSON.parse(userStr);
 
-      if (!uploadedHash) {
-        throw new Error("Please upload a document first");
+      if (files.length === 0) {
+        throw new Error("Please upload at least one document");
       }
 
       if (tokenSupply < 1) {
         throw new Error("Valuation must be at least 10 ETH to create tokens");
       }
 
-      const response = await api.createProperty({
-        owner_address: user.WalletAddress,
-        name,
-        symbol,
-        data_hash: uploadedHash,
-        valuation: parseFloat(valuation),
-        token_supply: tokenSupply,
-      });
+      setUploading(true);
+      const response = await api.createProperty(
+        {
+          owner_address: user.WalletAddress,
+          name,
+          symbol,
+          data_hash: "", // Not needed - files are sent directly
+          valuation: parseFloat(valuation),
+          token_supply: tokenSupply,
+        },
+        files
+      );
 
       setTxHash(response.tx_hash);
       setSuccess(true);
@@ -83,6 +74,7 @@ function UploadProperty() {
       setError(err.message || "Failed to create property");
     } finally {
       setLoading(false);
+      setUploading(false);
     }
   };
 
@@ -122,8 +114,7 @@ function UploadProperty() {
                 setSuccess(false);
                 setName("");
                 setValuation("");
-                setFile(null);
-                setUploadedHash("");
+                setFiles([]);
                 setTxHash("");
               }}
             >
@@ -202,56 +193,48 @@ function UploadProperty() {
 
         {/* Document Upload */}
         <div className="rounded-3xl border border-[#1f1f1f] bg-[#111111] p-6 space-y-4">
-          <h2 className="font-semibold text-lg">Property Document</h2>
+          <h2 className="font-semibold text-lg">Property Documents</h2>
           <p className="text-sm text-gray-400">
-            Upload property documentation (deed, certificate, etc.)
+            Upload property documentation (deed, certificate, images, etc.). Multiple files are supported.
           </p>
 
-          {!file ? (
-            <label className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-[#1f1f1f] rounded-2xl cursor-pointer hover:border-[#6d41ff] transition-colors">
-              <Upload className="text-gray-400 mb-2" size={32} />
-              <span className="text-gray-400">Click to upload</span>
-              <span className="text-xs text-gray-500 mt-1">PNG files only</span>
-              <input
-                type="file"
-                onChange={handleFileChange}
-                accept=".png"
-                className="hidden"
-              />
-            </label>
-          ) : (
-            <div className="flex items-center justify-between p-4 rounded-xl border border-[#1f1f1f] bg-[#0f0f0f]">
-              <div className="flex items-center gap-3">
-                <FileText className="text-[#6d41ff]" size={24} />
-                <div>
-                  <p className="text-sm font-medium truncate max-w-[200px]">
-                    {file.name}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {uploading
-                      ? "Uploading to IPFS..."
-                      : uploadedHash
-                      ? "Uploaded successfully"
-                      : "Ready"}
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={removeFile}
-                className="p-2 rounded-lg hover:bg-[#1a1a1a] text-gray-400 hover:text-white transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-          )}
+          <label className="flex flex-col items-center justify-center h-40 border-2 border-dashed border-[#1f1f1f] rounded-2xl cursor-pointer hover:border-[#6d41ff] transition-colors">
+            <Upload className="text-gray-400 mb-2" size={32} />
+            <span className="text-gray-400">Click to upload files</span>
+            <span className="text-xs text-gray-500 mt-1">Multiple files supported</span>
+            <input
+              type="file"
+              onChange={handleFileChange}
+              multiple
+              className="hidden"
+            />
+          </label>
 
-          {uploadedHash && (
-            <div className="bg-[#0f0f0f] rounded-xl p-3">
-              <p className="text-xs text-gray-500 mb-1">IPFS Hash</p>
-              <p className="text-xs font-mono text-gray-400 break-all">
-                {uploadedHash}
-              </p>
+          {files.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm text-gray-400">Selected files ({files.length}):</p>
+              {files.map((file, index) => (
+                <div key={index} className="flex items-center justify-between p-3 rounded-xl border border-[#1f1f1f] bg-[#0f0f0f]">
+                  <div className="flex items-center gap-3">
+                    <FileText className="text-[#6d41ff]" size={20} />
+                    <div>
+                      <p className="text-sm font-medium truncate max-w-[200px]">
+                        {file.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {(file.size / 1024).toFixed(2)} KB
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeFile(index)}
+                    className="p-2 rounded-lg hover:bg-[#1a1a1a] text-gray-400 hover:text-white transition-colors"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
@@ -272,7 +255,7 @@ function UploadProperty() {
             variant="primary"
             size="md"
             className="bg-[#6d41ff] hover:bg-[#5b2fff] text-white flex-1"
-            disabled={loading || uploading || !uploadedHash}
+            disabled={loading || uploading || files.length === 0}
           >
             {loading ? "Creating Property..." : "Create Property"}
           </Button>
@@ -283,5 +266,6 @@ function UploadProperty() {
 }
 
 export default UploadProperty;
+
 
 

@@ -6,12 +6,16 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   CheckCircle,
+  Coins,
+  Send,
+  X,
 } from "lucide-react";
 import { Button } from "../Components/atoms/Button";
 import { useWallet } from "../hooks/useWallet";
 import { checkApprovalStatus } from "../lib/contracts";
 import { getAdminWalletState } from "../lib/wallet";
-import type { User } from "../types";
+import { api } from "../lib/api";
+import type { User, Property } from "../types";
 import { ethers } from "ethers";
 
 const BALANCE_MULTIPLIER = 100000;
@@ -45,6 +49,22 @@ function WalletStatus() {
   const [copied, setCopied] = useState(false);
   const [walletBalance, setWalletBalance] = useState<string>("0");
   const [blockchainApproved, setBlockchainApproved] = useState<boolean | null>(null);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [tokenBalances, setTokenBalances] = useState<Record<string, string>>({});
+  const [loadingBalances, setLoadingBalances] = useState(false);
+  const [transferModal, setTransferModal] = useState<{
+    isOpen: boolean;
+    property: Property | null;
+    toAddress: string;
+    amount: string;
+    transferring: boolean;
+  }>({
+    isOpen: false,
+    property: null,
+    toAddress: "",
+    amount: "",
+    transferring: false,
+  });
   const { isConnected, address, provider } = useWallet();
   const lastCheckedAddress = useRef<string | null>(null);
 
@@ -112,7 +132,59 @@ useEffect(() => {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
   };
 
-  // Check blockchain approval status - always try, even if not connected
+  const openTransferModal = (property: Property) => {
+    setTransferModal({
+      isOpen: true,
+      property,
+      toAddress: "",
+      amount: "",
+      transferring: false,
+    });
+  };
+
+  const closeTransferModal = () => {
+    setTransferModal({
+      isOpen: false,
+      property: null,
+      toAddress: "",
+      amount: "",
+      transferring: false,
+    });
+  };
+
+  const handleTransfer = async () => {
+    if (!transferModal.property) return;
+
+    setTransferModal(prev => ({ ...prev, transferring: true }));
+
+    try {
+      const response = await api.transferTokens(
+        transferModal.property!.ID,
+        transferModal.toAddress,
+        transferModal.amount
+      );
+
+      alert(`✅ Transfer successful!\nTransaction Hash: ${response.tx_hash}`);
+
+      // Refresh balances
+      const balanceData = await api.getTokenBalance(
+        transferModal.property!.ID,
+        user!.WalletAddress
+      );
+      setTokenBalances(prev => ({
+        ...prev,
+        [transferModal.property!.ID]: balanceData.balance
+      }));
+
+      closeTransferModal();
+    } catch (err: any) {
+      console.error("Transfer failed:", err);
+      alert(`❌ Transfer failed: ${err.message}`);
+      setTransferModal(prev => ({ ...prev, transferring: false }));
+    }
+  };
+
+  // Check blockchain approval status - re-run when user data or wallet connection changes
   useEffect(() => {
     const checkApproval = async () => {
       const userAddress = user?.WalletAddress;
@@ -122,12 +194,6 @@ useEffect(() => {
         return;
       }
 
-      // Skip if we've already checked this address
-      if (lastCheckedAddress.current === userAddress) {
-        return;
-      }
-      lastCheckedAddress.current = userAddress;
-
       try {
         console.log(`🔍 Checking blockchain approval status for ${userAddress}`);
 
@@ -135,7 +201,7 @@ useEffect(() => {
         if (isConnected && address && provider && address.toLowerCase() === userAddress.toLowerCase()) {
           console.log('🔗 Using connected MetaMask wallet for approval check');
           const approved = await checkApprovalStatus(userAddress, provider);
-          console.log(`✅ MetaMask approval check result: ${approved}`);
+          console.log(`✅ MetaMask approval check result for ${userAddress}: ${approved}`);
           setBlockchainApproved(approved);
           return;
         }
@@ -144,7 +210,13 @@ useEffect(() => {
         console.log('🔄 Using admin wallet for approval check');
         const adminWallet = await getAdminWalletState();
         const approved = await checkApprovalStatus(userAddress, adminWallet.provider);
-        console.log(`✅ Admin wallet approval check result: ${approved}`);
+        console.log(`✅ Admin wallet approval check result for ${userAddress}: ${approved}`);
+        console.log(`🔍 Debug info:`, {
+          userAddress,
+          adminProvider: !!adminWallet.provider,
+          adminAddress: adminWallet.address,
+          isSameAsAdmin: userAddress.toLowerCase() === adminWallet.address.toLowerCase()
+        });
         setBlockchainApproved(approved);
 
       } catch (err) {
@@ -154,7 +226,40 @@ useEffect(() => {
     };
 
     checkApproval();
-  }, []); // Empty dependency array - only run once on mount
+  }, [user?.WalletAddress, isConnected, address, provider]); // Re-run when user data or wallet changes
+
+  // Fetch properties and token balances
+  useEffect(() => {
+    const fetchTokenBalances = async () => {
+      if (!user?.WalletAddress || !isConnected) return;
+
+      setLoadingBalances(true);
+      try {
+        // Fetch all properties
+        const allProperties = await api.getProperties();
+        setProperties(allProperties);
+
+        // Fetch token balances for each property
+        const balances: Record<string, string> = {};
+        for (const property of allProperties) {
+          try {
+            const balanceData = await api.getTokenBalance(property.ID, user.WalletAddress);
+            balances[property.ID] = balanceData.balance;
+          } catch (err) {
+            console.log(`No tokens for property ${property.ID}`);
+            balances[property.ID] = "0";
+          }
+        }
+        setTokenBalances(balances);
+      } catch (err) {
+        console.error("Failed to fetch token balances:", err);
+      } finally {
+        setLoadingBalances(false);
+      }
+    };
+
+    fetchTokenBalances();
+  }, [user?.WalletAddress, isConnected]);
 
   // Placeholder transactions (UI only, no additional logic wired yet)
   const transactions = [
@@ -298,6 +403,63 @@ useEffect(() => {
         </div>
       </div>
 
+      {/* Token Balances */}
+      <div className="rounded-3xl border border-[#1f1f1f] bg-[#111111] p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-lg">Property Token Balances</h2>
+          {loadingBalances && (
+            <span className="text-xs text-gray-500">Loading...</span>
+          )}
+        </div>
+
+        {properties.length === 0 ? (
+          <div className="text-center py-8">
+            <Coins size={24} className="mx-auto text-gray-400 mb-2" />
+            <p className="text-gray-400">No properties found</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {properties.map((property) => (
+              <div
+                key={property.ID}
+                className="flex items-center justify-between p-4 rounded-xl border border-[#1f1f1f] bg-[#0f0f0f]"
+              >
+                <div className="flex-1">
+                  <h3 className="font-semibold">{property.Name || `Property #${property.ID.substring(0, 8)}`}</h3>
+                  <p className="text-sm text-gray-400">
+                    {property.Valuation} ETH valuation
+                  </p>
+                  <p className="text-xs text-gray-500 font-mono">
+                    Token: {property.OnchainTokenAddress.substring(0, 10)}...
+                  </p>
+                </div>
+                <div className="text-right flex items-center gap-3">
+                  <div>
+                    <p className="text-lg font-semibold">
+                      {loadingBalances ? "..." : (tokenBalances[property.ID] || "0")} tokens
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {property.Status}
+                    </p>
+                  </div>
+                  {(tokenBalances[property.ID] || "0") !== "0" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openTransferModal(property)}
+                      className="border-[#262626] text-white hover:bg-[#1a1a1a]"
+                    >
+                      <Send size={14} className="mr-1" />
+                      Transfer
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Stats */}
       <div className="grid md:grid-cols-3 gap-4">
         <StatCard title="Total Invested" value={`${walletBalance} ETH`} icon={ArrowUpRight} />
@@ -371,6 +533,80 @@ useEffect(() => {
           )}
         </div>
       </div>
+
+      {/* Transfer Modal */}
+      {transferModal.isOpen && transferModal.property && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#111111] border border-[#1f1f1f] rounded-2xl p-6 w-full max-w-md">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Transfer Tokens</h3>
+              <button
+                onClick={closeTransferModal}
+                className="text-gray-400 hover:text-white"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-[#0f0f0f] border border-[#1f1f1f]">
+                <p className="text-sm text-gray-400">Property</p>
+                <p className="font-semibold">{transferModal.property.Name || `Property #${transferModal.property.ID.substring(0, 8)}`}</p>
+                <p className="text-xs text-gray-500">
+                  Balance: {tokenBalances[transferModal.property.ID] || "0"} tokens
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Recipient Address</label>
+                <input
+                  type="text"
+                  placeholder="0x..."
+                  value={transferModal.toAddress}
+                  onChange={(e) => setTransferModal(prev => ({
+                    ...prev,
+                    toAddress: e.target.value
+                  }))}
+                  className="w-full p-3 rounded-lg border border-[#262626] bg-[#0f0f0f] text-white placeholder-gray-500 focus:border-[#6d41ff] outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Amount</label>
+                <input
+                  type="number"
+                  placeholder="0"
+                  step="1"
+                  value={transferModal.amount}
+                  onChange={(e) => setTransferModal(prev => ({
+                    ...prev,
+                    amount: e.target.value
+                  }))}
+                  className="w-full p-3 rounded-lg border border-[#262626] bg-[#0f0f0f] text-white placeholder-gray-500 focus:border-[#6d41ff] outline-none"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={closeTransferModal}
+                  className="flex-1 border-[#262626] text-white hover:bg-[#1a1a1a]"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleTransfer}
+                  disabled={transferModal.transferring || !transferModal.toAddress || !transferModal.amount}
+                  className="flex-1 bg-[#6d41ff] hover:bg-[#5b2fff] text-white disabled:opacity-50"
+                >
+                  {transferModal.transferring ? "Transferring..." : "Transfer"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

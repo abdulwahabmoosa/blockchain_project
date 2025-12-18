@@ -25,7 +25,7 @@ const PropertyCard = ({
     </div>
     <div className="space-y-1">
       <h3 className="text-lg font-semibold truncate">
-        Property #{property.ID.substring(0, 8)}
+        {property.Name || `Property #${property.ID.substring(0, 8)}`}
       </h3>
       <p className="text-sm text-gray-400">{property.Valuation} ETH</p>
     </div>
@@ -197,5 +197,6 @@ function ViewProperties() {
 }
 
 export default ViewProperties;
+
 
 

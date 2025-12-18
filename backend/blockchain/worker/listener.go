@@ -3,6 +3,7 @@ package worker
 import (
 	"backend/blockchain"
 	"backend/blockchain/approval_service"
+	"backend/blockchain/property_asset"
 	"backend/blockchain/property_factory"
 	"backend/blockchain/revenue_distribution"
 	"backend/db"
@@ -11,16 +12,33 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 )
 
 func StartListeners(chain *blockchain.ChainService, database *db.Database) {
 	log.Printf("🔄 Starting blockchain event listeners...")
-	go listenForProperties(chain, database)
-	go listenForRevenue(chain, database)
-	go listenForApprovals(chain, database)
-	go listenForRevenueClaims(chain, database)
-	log.Printf("✅ All event listeners started")
+
+	if chain.PropertyFactory != nil {
+		go listenForProperties(chain, database)
+	} else {
+		log.Printf("⚠️ Skipping property listener - contract not available")
+	}
+
+	if chain.RevenueDistribution != nil {
+		go listenForRevenue(chain, database)
+		go listenForRevenueClaims(chain, database)
+	} else {
+		log.Printf("⚠️ Skipping revenue listeners - contract not available")
+	}
+
+	if chain.Approval != nil {
+		go listenForApprovals(chain, database)
+	} else {
+		log.Printf("⚠️ Skipping approval listener - contract not available")
+	}
+
+	log.Printf("✅ Event listeners started (only for available contracts)")
 }
 
 func listenForProperties(chain *blockchain.ChainService, database *db.Database) {
@@ -42,8 +60,27 @@ func listenForProperties(chain *blockchain.ChainService, database *db.Database) 
 			log.Printf("📢 Event: Property Registered at %s", event.PropertyAsset.Hex())
 			valFloat, _ := new(big.Float).SetInt(event.Valuation).Float64()
 
+			// Fetch property name from PropertyAsset contract
+			propertyName := ""
+			if chain.Client != nil {
+				propertyAssetAddr := common.HexToAddress(event.PropertyAsset.Hex())
+				propertyAsset, err := property_asset.NewPropertyAsset(propertyAssetAddr, chain.Client)
+				if err == nil {
+					name, err := propertyAsset.Name(nil)
+					if err == nil {
+						propertyName = name
+						log.Printf("✅ Fetched property name: %s", propertyName)
+					} else {
+						log.Printf("⚠️ Failed to fetch property name: %v", err)
+					}
+				} else {
+					log.Printf("⚠️ Failed to connect to PropertyAsset: %v", err)
+				}
+			}
+
 			newProp := models.Property{
 				ID:                  uuid.New(),
+				Name:                propertyName,
 				OnchainAssetAddress: event.PropertyAsset.Hex(),
 				OnchainTokenAddress: event.PropertyToken.Hex(),
 				OwnerWallet:         event.Owner.Hex(),
@@ -122,7 +159,7 @@ func listenForApprovals(chain *blockchain.ChainService, database *db.Database) {
 			userWallet := event.User.Hex()
 			log.Printf("📢 Event: User Approved %s", userWallet)
 
-			if err := database.UpdateUserApproval(userWallet, true); err != nil {
+			if err := database.UpdateUserApproval(userWallet, models.ApprovalApproved); err != nil {
 				log.Printf("❌ DB Error updating user approval: %v", err)
 			}
 		}
@@ -166,3 +203,4 @@ func listenForRevenueClaims(chain *blockchain.ChainService, database *db.Databas
 		}
 	}
 }
+

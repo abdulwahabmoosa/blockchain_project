@@ -101,6 +101,11 @@ export const checkApprovalStatus = async (
   }
 
   console.log(`🔍 Checking approval for ${walletAddress} on contract ${approvalServiceAddress}`);
+  console.log(`📋 Contract details:`, {
+    approvalServiceAddress,
+    walletAddress,
+    providerConnection: provider.connection?.url || 'unknown'
+  });
 
   // Create a contract instance (read-only)
   const approvalContract = new ethers.Contract(
@@ -115,6 +120,7 @@ export const checkApprovalStatus = async (
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       console.log(`🔄 Approval check attempt ${attempt} for ${walletAddress}`);
+      console.log(`📡 Calling contract.check(${walletAddress})`);
 
       // Add timeout to individual call
       const checkPromise = approvalContract.check(walletAddress);
@@ -123,6 +129,7 @@ export const checkApprovalStatus = async (
       );
 
       const isApproved = await Promise.race([checkPromise, timeoutPromise]);
+      console.log(`📋 Raw contract response for ${walletAddress}:`, isApproved);
 
       // Validate the result is boolean
       if (typeof isApproved !== 'boolean') {
@@ -426,6 +433,7 @@ export const getClaimableDistributions = async (
 
   return claimable;
 };
+
 
 
 
