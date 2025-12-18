@@ -3,12 +3,39 @@ import { Link as RouterLink } from "react-router-dom";
 import { Navbar } from "../Components/organisms/Navbar";
 import { Button } from "../Components/atoms/Button";
 import { api } from "../lib/api";
+import { useWallet } from "../hooks/useWallet";
 import type { Property } from "../types";
 
 function PropertiesPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const { isConnected, connectRegisteredWallet } = useWallet();
+  const [user, setUser] = useState<any>(null);
+
+  // Load user data
+  useEffect(() => {
+    const userStr = localStorage.getItem("user");
+    if (userStr) {
+      setUser(JSON.parse(userStr));
+    }
+  }, []);
+
+  // Auto-connect wallet for registered users
+  useEffect(() => {
+    const autoConnectWallet = async () => {
+      if (user && user.WalletAddress && !isConnected) {
+        console.log('🔗 Auto-connecting registered wallet for user:', user.Email);
+        try {
+          await connectRegisteredWallet(user.WalletAddress);
+        } catch (err) {
+          console.error('❌ Auto-connect failed:', err);
+        }
+      }
+    };
+
+    autoConnectWallet();
+  }, [user, isConnected, connectRegisteredWallet]);
 
   useEffect(() => {
     const fetchProperties = async () => {

@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 import type { Property } from "../types";
 import { useNavigate } from "react-router-dom";
 import { useWallet } from "../hooks/useWallet";
-import { getTokenBalance, checkApprovalStatus } from "../lib/contracts";
+import { getTokenBalance, checkApprovalStatus, getClaimableDistributions, claimRevenue } from "../lib/contracts";
 import { formatTokenBalance } from "../utils/format";
 
 const Card = ({
@@ -37,6 +37,12 @@ const GradientThumb = () => (
 interface PropertyWithBalance extends Property {
   tokenBalance?: string;
   balanceLoading?: boolean;
+  claimableDistributions?: Array<{
+    distributionId: number;
+    amount: bigint;
+    stablecoin: string;
+  }>;
+  claiming?: boolean;
 }
 
 function DashboardPage() {
@@ -48,8 +54,10 @@ function DashboardPage() {
   const [isApproved, setIsApproved] = useState<boolean | null>(null);
   const [isCheckingApproval, setIsCheckingApproval] = useState(false);
   const [user, setUser] = useState<any>(null);
+  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
   const navigate = useNavigate();
-  const { isConnected, address, provider } = useWallet();
+  const { isConnected, address, provider, signer, connectRegisteredWallet } = useWallet();
+
 
   // Check if user is admin and redirect if needed
   useEffect(() => {
@@ -63,6 +71,94 @@ function DashboardPage() {
       }
     }
   }, [navigate]);
+
+  const handleClaimRevenue = async (propertyId: string, distributionId: number) => {
+    if (!signer) {
+      setError("Wallet not connected");
+      return;
+    }
+
+    // Set claiming state for this property
+    setProperties(prev => prev.map(p =>
+      p.ID === propertyId ? { ...p, claiming: true } : p
+    ));
+
+    try {
+      const tx = await claimRevenue(distributionId, signer);
+      await tx.wait();
+
+      // Refresh claimable distributions for this property
+      if (address && provider) {
+        const property = properties.find(p => p.ID === propertyId);
+        if (property) {
+          const claimable = await getClaimableDistributions(
+            property.OnchainTokenAddress,
+            address,
+            provider
+          );
+
+          setProperties(prev => prev.map(p =>
+            p.ID === propertyId
+              ? { ...p, claimableDistributions: claimable, claiming: false }
+              : p
+          ));
+
+          // Also refresh token balance
+          const balance = await getTokenBalance(
+            property.OnchainTokenAddress,
+            address,
+            provider
+          );
+          setProperties(prev => prev.map(p =>
+            p.ID === propertyId
+              ? { ...p, tokenBalance: formatTokenBalance(balance) }
+              : p
+          ));
+        }
+      }
+
+      alert("Revenue claimed successfully!");
+    } catch (err: any) {
+      setError(err.message || "Failed to claim revenue");
+    } finally {
+      setProperties(prev => prev.map(p =>
+        p.ID === propertyId ? { ...p, claiming: false } : p
+      ));
+    }
+  };
+
+  // Auto-connect wallet for registered users (only attempt once)
+  useEffect(() => {
+    const autoConnectWallet = async () => {
+      if (user && user.WalletAddress && !autoConnectAttempted) {
+        setAutoConnectAttempted(true);
+
+        console.log('🔍 Auto-connect check:', { user: user?.Email, walletAddress: user?.WalletAddress, currentAddress: address, isConnected });
+
+        // Check if we're already connected to the correct wallet
+        const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
+
+        console.log('🔗 Wallet match check:', { isCorrectWallet, expected: user.WalletAddress, current: address });
+
+        if (!isCorrectWallet) {
+          console.log('🔗 Auto-connecting registered wallet for user:', user.Email);
+          try {
+            await connectRegisteredWallet(user.WalletAddress);
+            console.log('✅ Auto-connection successful');
+          } catch (err) {
+            console.error('❌ Auto-connect failed:', err);
+            // Don't retry, just log the error
+          }
+        } else {
+          console.log('✅ Already connected to correct wallet');
+        }
+      } else {
+        console.log('⏭️ Skipping auto-connect: no user or wallet address');
+      }
+    };
+
+    autoConnectWallet();
+  }, [user, autoConnectAttempted, address, connectRegisteredWallet]);
 
   useEffect(() => {
     const fetchProperties = async () => {
@@ -152,10 +248,26 @@ function DashboardPage() {
               provider
             );
             total += balance;
+
+            // If user has tokens in this property, fetch claimable distributions
+            let claimableDistributions = undefined;
+            if (balance > 0n) {
+              try {
+                claimableDistributions = await getClaimableDistributions(
+                  property.OnchainTokenAddress,
+                  address,
+                  provider
+                );
+              } catch (claimErr) {
+                console.error(`Failed to fetch claimable distributions for property ${property.ID}:`, claimErr);
+              }
+            }
+
             return {
               ...property,
               tokenBalance: formatTokenBalance(balance),
               balanceLoading: false,
+              claimableDistributions,
             };
           } catch (err) {
             console.error(`Failed to fetch balance for property ${property.ID}:`, err);
@@ -163,6 +275,7 @@ function DashboardPage() {
               ...property,
               tokenBalance: "0",
               balanceLoading: false,
+              claimableDistributions: [],
             };
           }
         })
@@ -297,7 +410,7 @@ function DashboardPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <Card title="Total Properties" value={properties.length.toString()} sub="Platform" />
                   <Card title="Active" value={properties.filter(p => p.Status === "Active").length.toString()} sub="Status" accent="bg-[#2e2e2e]" />
-                  <Card title="Avg Price" value="0.5 ETH" sub="Est." accent="bg-[#2c1f5e]" />
+                  <Card title="Avg Price" value="-- ETH" sub="Est." accent="bg-[#2c1f5e]" />
                   <Card title="Watchlist" value="0" sub="Saved" accent="bg-[#1f3a5e]" />
                 </div>
                 <Button
@@ -439,6 +552,28 @@ function DashboardPage() {
                         <span className="inline-block text-xs px-2 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30">
                           Owned
                         </span>
+                      )}
+                      {isConnected && item.claimableDistributions && item.claimableDistributions.length > 0 && (
+                        <div className="space-y-1 pt-1 border-t border-gray-700">
+                          <p className="text-xs text-yellow-400 font-semibold">
+                            💰 Claimable: {formatTokenBalance(item.claimableDistributions.reduce((sum, dist) => sum + dist.amount, 0n))}
+                          </p>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              // For simplicity, claim from the first distribution
+                              // In production, you might want to show all distributions
+                              if (item.claimableDistributions && item.claimableDistributions.length > 0) {
+                                handleClaimRevenue(item.ID, item.claimableDistributions[0].distributionId);
+                              }
+                            }}
+                            disabled={item.claiming}
+                            className="w-full text-xs py-1 h-6 border-yellow-500/50 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
+                          >
+                            {item.claiming ? "Claiming..." : "Claim Revenue"}
+                          </Button>
+                        </div>
                       )}
                     </div>
                   </div>

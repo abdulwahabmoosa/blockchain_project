@@ -35,8 +35,42 @@ export default function PropertyDetailsPage() {
   const [transferTo, setTransferTo] = useState(""); // Transfer recipient
   const [transferAmount, setTransferAmount] = useState(""); // Transfer amount
   const [transferring, setTransferring] = useState(false); // Transfer loading
-  const { isConnected, address, provider, signer } = useWallet();
+  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
+  const { isConnected, address, provider, signer, connectRegisteredWallet } = useWallet();
   const navigate = useNavigate();
+  const [user, setUser] = useState<any>(null);
+
+  // Load user data
+  useEffect(() => {
+    const userStr = localStorage.getItem("user");
+    if (userStr) {
+      setUser(JSON.parse(userStr));
+    }
+  }, []);
+
+  // Auto-connect wallet for registered users (only attempt once)
+  useEffect(() => {
+    const autoConnectWallet = async () => {
+      if (user && user.WalletAddress && !autoConnectAttempted) {
+        setAutoConnectAttempted(true);
+
+        // Check if we're already connected to the correct wallet
+        const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
+
+        if (!isCorrectWallet) {
+          console.log('🔗 Auto-connecting registered wallet for user:', user.Email);
+          try {
+            await connectRegisteredWallet(user.WalletAddress);
+          } catch (err) {
+            console.error('❌ Auto-connect failed:', err);
+            // Don't retry, just log the error
+          }
+        }
+      }
+    };
+
+    autoConnectWallet();
+  }, [user, autoConnectAttempted, address, connectRegisteredWallet]);
 
   useEffect(() => {
     const fetchProperty = async () => {

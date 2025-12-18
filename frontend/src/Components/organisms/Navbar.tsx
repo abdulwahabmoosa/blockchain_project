@@ -20,9 +20,19 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const activeHref = currentPage || location.pathname;
-  const { isConnected, address, connect, disconnect, resetLoading, isLoading, chainId, switchNetwork } = useWallet();
+  const { isConnected, address, connect, disconnect, resetLoading, isLoading, chainId, switchNetwork, error, clearError, totalTokenBalance } = useWallet();
 
   const isAdmin = user?.Role === "admin";
+
+  // Auto-dismiss error after 5 seconds
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        clearError();
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, clearError]);
 
   // Check if user is logged in
   useEffect(() => {
@@ -44,14 +54,17 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
     };
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    console.log('🔐 Logging out user');
+
     // Clear authentication data
     localStorage.removeItem("auth");
     localStorage.removeItem("token");
     localStorage.removeItem("user");
 
     // Disconnect wallet to force fresh connection on next login
-    disconnect();
+    console.log('🔌 Disconnecting wallet on logout');
+    await disconnect();
 
     setIsLoggedIn(false);
     setUser(null);
@@ -103,9 +116,16 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
                 )}
                 <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#262626] bg-[#1A1A1A]">
                   <div className="h-2 w-2 rounded-full bg-green-500" />
-                  <span className="text-sm font-mono">
-                    {address?.substring(0, 6)}...{address?.substring(38)}
-                  </span>
+                  <div className="flex flex-col items-start">
+                    <span className="text-sm font-mono">
+                      {address?.substring(0, 6)}...{address?.substring(38)}
+                    </span>
+                    {totalTokenBalance && (
+                      <span className="text-xs text-gray-400">
+                        {totalTokenBalance} tokens
+                      </span>
+                    )}
+                  </div>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -117,7 +137,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
                 </div>
               </div>
             ) : (
-              <div className="flex items-center gap-2">
+              <div className="relative flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
@@ -131,6 +151,11 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
                   <span className="text-xs text-yellow-400" title="Wallet was disconnected - manual reconnection required">
                     🔒
                   </span>
+                )}
+                {error && (
+                  <div className="absolute top-full mt-2 right-0 bg-red-900/90 border border-red-700 rounded-md px-3 py-2 text-sm text-red-200 max-w-xs">
+                    {error}
+                  </div>
                 )}
               </div>
             )}

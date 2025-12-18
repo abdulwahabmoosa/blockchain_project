@@ -5,7 +5,7 @@ import { Button } from "../Components/atoms/Button";
 import { api } from "../lib/api";
 import type { Property, User } from "../types";
 import { useWallet } from "../hooks/useWallet";
-import { checkApprovalStatus } from "../lib/contracts";
+import { checkApprovalStatus, getTokenBalance } from "../lib/contracts";
 import { formatTokenBalance } from "../utils/format";
 import contractAddresses from "../deployments/sepolia/contract-addresses.json";
 
@@ -48,8 +48,9 @@ function AdminDashboard() {
   const [isApproved, setIsApproved] = useState<boolean | null>(null);
   const [totalUsers, setTotalUsers] = useState<number>(0);
   const [user, setUser] = useState<User | null>(null);
+  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
   const navigate = useNavigate();
-  const { isConnected, address, provider } = useWallet();
+  const { isConnected, address, provider, connectRegisteredWallet } = useWallet();
 
   // Check if user is admin
   useEffect(() => {
@@ -63,6 +64,33 @@ function AdminDashboard() {
       }
     }
   }, [navigate]);
+
+  // Auto-connect wallet for admin users (only attempt once)
+  useEffect(() => {
+    const autoConnectWallet = async () => {
+      if (user && user.WalletAddress && !autoConnectAttempted) {
+        setAutoConnectAttempted(true);
+
+        // Check if we're already connected to the correct wallet
+        const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
+
+        if (!isCorrectWallet) {
+          console.log('🔗 Auto-connecting admin wallet for user:', user.Email);
+          try {
+            await connectRegisteredWallet(user.WalletAddress);
+            console.log('✅ Admin wallet auto-connection successful');
+          } catch (err) {
+            console.error('❌ Admin wallet auto-connect failed:', err);
+            // Don't retry, just log the error
+          }
+        } else {
+          console.log('✅ Admin already connected to correct wallet');
+        }
+      }
+    };
+
+    autoConnectWallet();
+  }, [user, autoConnectAttempted, address, connectRegisteredWallet]);
 
   useEffect(() => {
     const fetchProperties = async () => {
@@ -141,7 +169,7 @@ function AdminDashboard() {
       const updatedProperties = await Promise.all(
         properties.map(async (property) => {
           try {
-            const balance = await api.getTokenBalance(
+            const balance = await getTokenBalance(
               property.OnchainTokenAddress,
               address,
               provider
