@@ -30,10 +30,6 @@ const Card = ({
   </div>
 );
 
-const GradientThumb = () => (
-  <div className="rounded-2xl border border-[#1f1f1f] bg-linear-to-br from-[#191919] via-[#1f1f1f] to-[#121212] w-full h-full" />
-);
-
 interface PropertyWithBalance extends Property {
   tokenBalance?: string;
   balanceLoading?: boolean;
