@@ -3,13 +3,11 @@ package api
 import (
 	"backend/auth"
 	"backend/blockchain"
-	"backend/blockchain/worker"
 	"backend/db"
 	"backend/db/models"
 	"backend/ipfs"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -20,13 +18,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors" // CORS middleware
+	"github.com/go-chi/chi/v5/middleware" // CORS middleware
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator/v10" // Ensure you ran: go get github.com/go-playground/validator/v10
-	"gorm.io/gorm"
 )
 
 // Initialize Validator
@@ -59,8 +55,8 @@ type CreatePropertyRequest struct {
 	OwnerAddress string  `json:"owner_address" validate:"required,eth_addr"`
 	Name         string  `json:"name" validate:"required,min=3,max=100"`
 	Symbol       string  `json:"symbol" validate:"required,alphanum,len=3-4"` // 3 or 4 chars, e.g. "PROP"
-	DataHash     string  `json:"data_hash" validate:"required,printascii"`        // IPFS hash usually ascii
-	Valuation    float64 `json:"valuation" validate:"required,gt=0"`              // Can be float from frontend
+	DataHash     string  `json:"data_hash" validate:"required,printascii"`    // IPFS hash usually ascii
+	Valuation    float64 `json:"valuation" validate:"required,gt=0"`          // Can be float from frontend
 	TokenSupply  int64   `json:"token_supply" validate:"required,gt=0"`
 }
 
@@ -81,11 +77,7 @@ type RequestHandler struct {
 
 func NewRequestHandler(db *db.Database, chain *blockchain.ChainService) *RequestHandler {
 	// Start blockchain event listeners (optional - won't crash if subscriptions fail)
-	if chain != nil {
-		log.Printf("🔄 Starting blockchain event listeners...")
-		worker.StartListeners(chain, db)
-		log.Printf("✅ Blockchain listeners started (may show warnings if RPC doesn't support subscriptions)")
-	}
+
 	return &RequestHandler{db, chain}
 }
 
@@ -93,14 +85,14 @@ func (handler *RequestHandler) Start() {
 	r := chi.NewRouter()
 
 	// CORS middleware configuration
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"}, // Allow frontend dev server and backend
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-		ExposedHeaders:   []string{"Link"},
-		AllowCredentials: true,
-		MaxAge:           300, // Maximum value not ignored by any of major browsers
-	}))
+	// r.Use(cors.Handler(cors.Options{
+	// 	AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"}, // Allow frontend dev server and backend
+	// 	AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+	// 	AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+	// 	ExposedHeaders:   []string{"Link"},
+	// 	AllowCredentials: true,
+	// 	MaxAge:           300, // Maximum value not ignored by any of major browsers
+	// }))
 
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer) // Recover from panics and return 500
@@ -179,46 +171,7 @@ func (handler *RequestHandler) gracefulShutdown(srv *http.Server) {
 	log.Println("✅ Server exiting")
 }
 
-func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
-	log.Printf("🔐 Login attempt started")
-
-	var creds auth.LoginCredentials
-	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		log.Printf("❌ Login failed: JSON decode error: %v", err)
-		http.Error(w, "Invalid Request", http.StatusBadRequest)
-		return
-	}
-	log.Printf("📋 Login credentials received: email=%s", creds.Email)
-
-	// VALIDATION
-	if err := validate.Struct(creds); err != nil {
-		log.Printf("❌ Login failed: Validation error: %v", err)
-		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-	log.Printf("✅ Login validation passed")
-
-	user, err := handler.db.GetUserByCredentials(creds)
-	if err != nil {
-		log.Printf("❌ Login failed: Database error: %v", err)
-		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
-		return
-	}
-	log.Printf("✅ User found in database: ID=%s, Email=%s, Role=%s, IsApproved=%t", user.ID, user.Email, user.Role, user.IsApproved)
-
-	token, err := auth.GenerateToken(user.ID, user.Email)
-	if err != nil {
-		log.Printf("❌ Login failed: Token generation error: %v", err)
-		http.Error(w, "Server Error", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("✅ Login token generated successfully")
-
-	render.JSON(w, r, map[string]any{
-		"token": token,
-		"user":  user,
-	})
-}
+// Login is in auth.go
 
 func (handler *RequestHandler) UpdateUserInfo(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
@@ -278,47 +231,27 @@ func (handler *RequestHandler) UpdateUserApproval(w http.ResponseWriter, r *http
 		return
 	}
 
-	var tx *types.Transaction
-	var err error
-
-	switch req.Status {
-	case models.ApprovalApproved:
-		if handler.chain == nil {
-			http.Error(w, "Blockchain service not available - cannot approve users", http.StatusServiceUnavailable)
-			return
-		}
-		tx, err = handler.chain.ApproveUser(req.WalletAddress)
-		if err != nil {
-			http.Error(w, "Blockchain Error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-	case models.ApprovalRejected:
-		// Rejection is handled database-only since no blockchain rejection method exists yet
-		// TODO: Add blockchain rejection functionality when available
-		log.Printf("⚠️ User rejection is database-only until blockchain rejection is implemented")
-	}
-
-	// Update database
-	if err := handler.db.UpdateUserApproval(req.WalletAddress, req.Status); err != nil {
-		http.Error(w, "DB Error: "+err.Error(), http.StatusInternalServerError)
+	tx, err := handler.chain.ApproveUser(req.WalletAddress)
+	if err != nil {
+		http.Error(w, "Blockchain error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Return appropriate response based on whether blockchain transaction was involved
-	if req.Status == models.ApprovalApproved && tx != nil {
-		render.JSON(w, r, map[string]interface{}{
-			"status":   "pending",
-			"action":   string(req.Status),
-			"tx_hash":  tx.Hash().Hex(),
-			"message":  "Transaction submitted. DB will update upon confirmation.",
-		})
-	} else {
-		render.JSON(w, r, map[string]interface{}{
-			"status":   "success",
-			"action":   string(req.Status),
-			"message":  "User approval status updated in database.",
-		})
+	// 2. WAIT for mining
+	log.Printf("⏳ Waiting for approval tx to mine: %s", tx.Hash().Hex())
+	receipt, err := bind.WaitMined(r.Context(), handler.chain.Client, tx)
+	if err != nil || receipt.Status == 0 {
+		http.Error(w, "Transaction failed on-chain", http.StatusInternalServerError)
+		return
 	}
+
+	// 3. Update DB immediately
+	err = handler.db.UpdateUserApproval(req.WalletAddress, "approved")
+	if err != nil {
+		log.Printf("❌ Failed to update DB after mining: %v", err)
+	}
+
+	render.JSON(w, r, map[string]string{"tx_hash": tx.Hash().Hex(), "": "confirmed"})
 }
 
 // DeleteUser handles DELETE /users/me
@@ -389,65 +322,7 @@ func (handler *RequestHandler) ResetPassword(w http.ResponseWriter, r *http.Requ
 	})
 }
 
-func (handler *RequestHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
-	var userDetails auth.RegisterUserPayload
-	if err := json.NewDecoder(r.Body).Decode(&userDetails); err != nil {
-		log.Printf("❌ RegisterUser: Failed to decode request: %v", err)
-		http.Error(w, "Invalid Request", http.StatusBadRequest)
-		return
-	}
-
-	log.Printf("📋 RegisterUser: Received registration request for email: %s, wallet: %s", userDetails.Email, userDetails.WalletAddress)
-
-	// VALIDATION
-	if err := validate.Struct(userDetails); err != nil {
-		log.Printf("❌ RegisterUser: Validation failed: %v", err)
-		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// Check if email already exists
-	exists, err := handler.db.UserExists(userDetails.Email)
-	if err != nil {
-		log.Printf("❌ RegisterUser: Error checking if user exists: %v", err)
-		http.Error(w, "Server Error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if exists {
-		log.Printf("⚠️ RegisterUser: User with email %s already exists", userDetails.Email)
-		http.Error(w, "User Exists", http.StatusBadRequest)
-		return
-	}
-
-	// Check if wallet address already exists
-	_, err = handler.db.GetUserByWallet(userDetails.WalletAddress)
-	if err == nil {
-		log.Printf("⚠️ RegisterUser: User with wallet %s already exists", userDetails.WalletAddress)
-		http.Error(w, "Wallet address already registered", http.StatusBadRequest)
-		return
-	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		log.Printf("❌ RegisterUser: Error checking wallet address: %v", err)
-		http.Error(w, "Server Error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// If err is ErrRecordNotFound, continue with registration
-
-	// Create user
-	err = handler.db.CreateUser(userDetails)
-	if err != nil {
-		log.Printf("❌ RegisterUser: Failed to create user: %v", err)
-		// Check for unique constraint violation
-		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "UNIQUE constraint") {
-			http.Error(w, "Email or wallet address already registered", http.StatusBadRequest)
-			return
-		}
-		http.Error(w, "Server Error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("✅ RegisterUser: User registered successfully: %s", userDetails.Email)
-	render.JSON(w, r, map[string]string{"message": "User registered successfully"})
-}
+// RegisterUser is in auth.go
 
 // CreateProperty is now in property.go - uses multipart form data with files
 
@@ -494,12 +369,19 @@ func (handler *RequestHandler) ApproveUser(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Check if chain service is available
-	if handler.chain == nil {
-		log.Printf("❌ Chain service not initialized - blockchain functionality disabled")
-		http.Error(w, "Blockchain service not available - check environment configuration", http.StatusServiceUnavailable)
-		return
-	}
+	// // Check if chain service is available
+	// if handler.chain == nil {
+	// 	log.Printf("❌ Chain service not initialized - blockchain functionality disabled")
+	// 	http.Error(w, "Blockchain service not available - check environment configuration", http.StatusServiceUnavailable)
+	// 	return
+	// }
+	// chain, err := blockchain.NewChainServiceEnv()
+	// if err != nil {
+	// 	log.Printf("❌ Chain init failed: %v", err)
+	// } else {
+	// 	log.Printf("✅ Chain service initialized successfully")
+	// }
+	// handler.chain = chain
 
 	// Check if Approval contract is deployed
 	if handler.chain.Approval == nil {
@@ -537,7 +419,8 @@ func (handler *RequestHandler) ApproveUser(w http.ResponseWriter, r *http.Reques
 func (handler *RequestHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := handler.db.GetAllUsers()
 	if err != nil {
-		http.Error(w, "Failed to fetch users", http.StatusInternalServerError)
+		log.Printf("❌ GetUsers error: %v", err)
+		http.Error(w, "Failed to fetch users: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	render.JSON(w, r, users)

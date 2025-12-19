@@ -1,10 +1,10 @@
 {
   "network": "sepolia",
   "adminAddress": "0x98E5a749E25C56e19C28008505DF75aFf4988049",
-  "PlatformRegistry": "0x113FdC450314d59eAbEEfA2ff9F232DD7b08ad38",
+  "PlatformRegistry": "0x42886E2091615c831252bA88C640641d5cfab43F",
   "ApprovalService": "0xB88F19F1074E6d7c23B6951360c00AEd1C4Ac635",
-  "PropertyFactory": "0x9Aa0a2Ee2Cb91587484b0F7F2BE992E1F4484F1e",
-  "RevenueDistribution": "0xD7ebec79B2e8D218F59A3777fa615eae762Bb7f6",
+  "PropertyFactory": "0x4064A228951F39e3bFCC17B9A241a49558FaC4B6",
+  "RevenueDistribution": "0xA08e097D421bD4a23b9db42a7356945a373a4666",
   "PropertyAsset (ERC721)": "0xaccB782B388B769d76794d92Bb4dd7b4B571B127",
   "PropertyToken (ERC20)": "0xB44F0542a98DaB34cEe9a6Bb7A8A52AaFF1Fa598",
   "Metadata Hash": "QmHashHere",

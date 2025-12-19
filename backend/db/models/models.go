@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
 )
 
 // UserRole represents the possible roles for a user.
@@ -19,21 +18,21 @@ const (
 type ApprovalStatus string
 
 const (
+	ApprovalPending  ApprovalStatus = "pending"
 	ApprovalApproved ApprovalStatus = "approved"
 	ApprovalRejected ApprovalStatus = "rejected"
 )
 
 type User struct {
-	ID            uuid.UUID `gorm:"type:uuid;primaryKey"`                    // Maps to id (UUID/INT), using UUID for consistency
-	WalletAddress string    `gorm:"type:varchar(100);unique;not null;index"` // MUST be unique, links to on-chain addresses
-	Email         string    `gorm:"type:varchar(255)"`
-	Name          string    `gorm:"type:varchar(255)"`
-	PasswordHash  string    `gorm:"not null"`
-	Role          UserRole  `gorm:"type:user_role;default:'user'"` // Maps to role ENUM
-	IsApproved    bool      `gorm:"default:false"`                 // Synced from ApprovalService contract
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	DeletedAt     gorm.DeletedAt `gorm:"index"`
+	ID             uuid.UUID      `json:"ID" gorm:"type:uuid;primaryKey"`
+	WalletAddress  string         `json:"WalletAddress" gorm:"type:varchar(100);unique;not null;index"`
+	Email          string         `json:"Email" gorm:"type:varchar(255)"`
+	Name           string         `json:"Name" gorm:"type:varchar(255)"`
+	PasswordHash   string         `json:"-" gorm:"not null"` // Exclude from JSON
+	Role           UserRole       `json:"Role" gorm:"type:user_role;default:'user'"`
+	ApprovalStatus ApprovalStatus `json:"approval_status" gorm:"type:approval_status;default:'pending'"`
+	CreatedAt      time.Time      `json:"CreatedAt"`
+	UpdatedAt      time.Time      `json:"UpdatedAt"`
 }
 
 // PropertyStatus represents the status ENUM for a property.
@@ -55,6 +54,7 @@ type Property struct {
 	MetadataHash        string         `gorm:"type:varchar(255);not null"`            // IPFS/document hash
 	Valuation           float64        `gorm:"type:decimal"`                          // DECIMAL, using float64 or string for precision
 	Status              PropertyStatus `gorm:"type:property_status;default:'Active'"` // Synced from blockchain
+	TxHash              string         `gorm:"type:varchar(100)"`                     // Transaction hash of property creation
 	CreatedAt           time.Time
 	// Relationships
 	Documents []PropertyDocument    `gorm:"foreignKey:PropertyID"`

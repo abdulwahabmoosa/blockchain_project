@@ -19,7 +19,13 @@ interface WalletContextType extends WalletState {
   disconnect: () => void;
   connectRegisteredWallet: (registeredAddress: string) => Promise<void>;
   switchToSepolia: () => Promise<void>;
+  switchNetwork: () => Promise<void>;
   verifyWalletMatch: (registeredAddress: string) => boolean;
+  isLoading: boolean;
+  resetLoading: () => void;
+  error: string | null;
+  clearError: () => void;
+  totalTokenBalance: string | null;
 }
 
 /**
@@ -43,6 +49,9 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
   const [signer, setSigner] = useState<ethers.JsonRpcSigner | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [totalTokenBalance, _setTotalTokenBalance] = useState<string | null>(null);
 
   // Initialize wallet state on mount
   useEffect(() => {
@@ -103,6 +112,8 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
 
   // Connect wallet
   const connect = async (forceSelection: boolean = false) => {
+    setIsLoading(true);
+    setError(null);
     try {
       const walletState = await connectWallet(forceSelection);
       setIsConnected(true);
@@ -110,9 +121,12 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       setProvider(walletState.provider);
       setSigner(walletState.signer);
       setChainId(walletState.chainId);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to connect wallet:', error);
+      setError(error.message || 'Failed to connect wallet');
       throw error;
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -144,6 +158,8 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
 
   // Switch to Sepolia network
   const switchToSepoliaNetwork = async () => {
+    setIsLoading(true);
+    setError(null);
     try {
       await switchToSepolia();
       // Update chain ID after switching
@@ -151,10 +167,27 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
         const network = await provider.getNetwork();
         setChainId(Number(network.chainId));
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to switch to Sepolia:', error);
+      setError(error.message || 'Failed to switch network');
       throw error;
+    } finally {
+      setIsLoading(false);
     }
+  };
+
+  // Alias for switchNetwork (used in Navbar)
+  const switchNetwork = switchToSepoliaNetwork;
+
+  // Reset loading state
+  const resetLoading = () => {
+    setIsLoading(false);
+    setError(null);
+  };
+
+  // Clear error
+  const clearError = () => {
+    setError(null);
   };
 
   // Verify wallet match
@@ -172,7 +205,13 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
     disconnect,
     connectRegisteredWallet,
     switchToSepolia: switchToSepoliaNetwork,
+    switchNetwork,
     verifyWalletMatch: checkWalletMatch,
+    isLoading,
+    resetLoading,
+    error,
+    clearError,
+    totalTokenBalance,
   };
 
   return (

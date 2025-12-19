@@ -3,6 +3,7 @@ package main
 import (
 	"backend/api"
 	"backend/blockchain"
+	"backend/blockchain/worker"
 	"backend/db"
 	"backend/db/models"
 	"log"
@@ -34,6 +35,9 @@ func main() {
 		log.Printf("🔄 Starting revenue distribution scheduler...")
 		go startRevenueScheduler(database, chainService)
 		log.Printf("✅ Revenue scheduler started (runs every 24 hours)")
+		log.Printf("🔄 Starting blockchain event listeners...")
+		worker.StartListeners(chainService, database)
+		log.Printf("✅ Blockchain listeners started (may show warnings if RPC doesn't support subscriptions)")
 	}
 
 	// 4. Start API Server

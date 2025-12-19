@@ -29,11 +29,14 @@ func (db *Database) createEnums() error {
 	        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'property_status') THEN
 	            CREATE TYPE property_status AS ENUM ('Active', 'Paused', 'Disputed', 'Closed');
             END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_type') THEN
-                CREATE TYPE transaction_type AS ENUM ('approve_user', 'create_property', 'deposit_revenue', 'claim_revenue', 'transfer_token');
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'approval_status') THEN
+                CREATE TYPE approval_status AS ENUM ('pending', 'approved', 'rejected');
             END IF;
-            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_status') THEN
+			IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_status') THEN
                 CREATE TYPE transaction_status AS ENUM ('pending', 'confirmed', 'failed');
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_type') THEN
+            	CREATE TYPE transaction_type AS ENUM ('approve_user', 'create_property', 'deposit_revenue', 'claim_revenue', 'transfer_token');
             END IF;
         END
         $$;
@@ -80,12 +83,12 @@ func (db *Database) seedAdmin() error {
 			IF EXISTS (SELECT 1 FROM users WHERE email = target_email) THEN
 				-- Update existing user to be admin
 				UPDATE users
-				SET role = 'admin', is_approved = true, password_hash = target_hash
+				SET role = 'admin', approval_status = 'approved', password_hash = target_hash
 				WHERE email = target_email;
 			ELSE
 				-- Insert new admin user
-				INSERT INTO users (id, email, name, wallet_address, password_hash, role, is_approved, created_at, updated_at)
-				VALUES (new_id, target_email, 'System Admin', target_wallet, target_hash, 'admin', true, NOW(), NOW());
+				INSERT INTO users (id, email, name, wallet_address, password_hash, role, approval_status, created_at, updated_at)
+				VALUES (new_id, target_email, 'System Admin', target_wallet, target_hash, 'admin', 'approved', NOW(), NOW());
 			END IF;
 		END
 		$$;
@@ -150,15 +153,9 @@ func (db *Database) CreateUser(details auth.RegisterUserPayload) error {
 		WalletAddress: details.WalletAddress,
 		PasswordHash:  string(hash),
 		Role:          models.RoleUser,
-		IsApproved:    false, // Default to false until on-chain approval
 	}
 
-	// Use WithContext to set the context, then Create
-	result := db.db.WithContext(db.ctx).Create(&newUser)
-	if result.Error != nil {
-		return fmt.Errorf("failed to create user: %w", result.Error)
-	}
-	return nil
+	return gorm.G[models.User](db.db).Create(db.ctx, &newUser)
 }
 
 func (db *Database) GetUserById(id string) (models.User, error) {
@@ -179,24 +176,34 @@ func (db *Database) GetUserByWallet(wallet string) (models.User, error) {
 }
 
 func (db *Database) GetAllUsers() (result []models.User, err error) {
+	if db.db == nil {
+		return nil, fmt.Errorf("database connection is nil")
+	}
 	result, err = gorm.G[models.User](db.db).Find(db.ctx)
-	return
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch users: %w", err)
+	}
+	// Return empty slice instead of nil if no users found
+	if result == nil {
+		result = []models.User{}
+	}
+	return result, nil
 }
 
 func (db *Database) UpdateUserApproval(wallet string, status models.ApprovalStatus) error {
-	var approved bool
+	var approved models.ApprovalStatus
 	switch status {
 	case models.ApprovalApproved:
-		approved = true
+		approved = models.ApprovalApproved
 	case models.ApprovalRejected:
-		approved = false
+		approved = models.ApprovalRejected
 	default:
 		return errors.New("invalid approval status")
 	}
 
 	_, err := gorm.G[models.User](db.db).
 		Where("wallet_address = ?", wallet).
-		Update(db.ctx, "is_approved", approved)
+		Update(db.ctx, "approval_status", approved)
 	return err
 }
 
@@ -204,6 +211,10 @@ func (db *Database) UpdateUserApproval(wallet string, status models.ApprovalStat
 
 func (db *Database) CreateProperty(prop models.Property) error {
 	return gorm.G[models.Property](db.db).Create(db.ctx, &prop)
+}
+
+func (db *Database) CreatePropertyDocument(doc models.PropertyDocument) error {
+	return gorm.G[models.PropertyDocument](db.db).Create(db.ctx, &doc)
 }
 
 func (db *Database) GetAllProperties() (result []models.Property, err error) {
@@ -326,7 +337,7 @@ func (db *Database) DeleteUser(userID string) error {
 		return err
 	}
 
-	_, err = gorm.G[models.User](db.db).Where("id = ?", uid).Delete(db.ctx)
+	_, err = gorm.G[models.User](db.db.Unscoped()).Where("id = ?", uid).Delete(db.ctx)
 	return err
 }
 

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"backend/blockchain"
 	"backend/db/models"
 	"backend/ipfs"
 	"encoding/json"
@@ -72,20 +73,56 @@ func (handler *RequestHandler) CreateProperty(w http.ResponseWriter, r *http.Req
 
 	log.Printf("✅ CreateProperty: Processed %d files, main hash: %s", len(dbDocs), mainHash)
 
-	tx, err := handler.createPropertyOnChain(payload, mainHash)
+	// Submit to blockchain and wait for confirmation
+	result, err := handler.createPropertyOnChain(payload, mainHash)
 	if err != nil {
-		log.Printf("❌ CreateProperty: Blockchain submission failed: %v", err)
+		log.Printf("❌ CreateProperty: Blockchain transaction failed: %v", err)
 		http.Error(w, "Blockchain Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✅ CreateProperty: Transaction submitted successfully - Hash: %s", tx.Hash().Hex())
+	log.Printf("✅ CreateProperty: Blockchain transaction confirmed - Hash: %s", result.TxHash)
+	log.Printf("📝 CreateProperty: Asset: %s, Token: %s", result.AssetAddress, result.TokenAddress)
+
+	// Create property record in database
+	property := models.Property{
+		ID:                  uuid.New(),
+		Name:                result.PropertyName,
+		OnchainAssetAddress: result.AssetAddress,
+		OnchainTokenAddress: result.TokenAddress,
+		OwnerWallet:         payload.OwnerAddress,
+		MetadataHash:        mainHash,
+		Valuation:           float64(payload.Valuation),
+		Status:              models.StatusActive,
+		TxHash:              result.TxHash,
+		CreatedAt:           time.Now(),
+	}
+
+	if err := handler.db.CreateProperty(property); err != nil {
+		log.Printf("❌ CreateProperty: Database save failed: %v", err)
+		// Property exists on blockchain but not in DB - log error but don't fail the request
+		// The event listener can pick it up later
+		log.Printf("⚠️ Property created on blockchain but DB save failed. Event listener will retry.")
+	} else {
+		log.Printf("✅ CreateProperty: Property saved to database - ID: %s", property.ID)
+	}
+
+	// Link documents to property
+	for i := range dbDocs {
+		dbDocs[i].PropertyID = property.ID
+		if err := handler.db.CreatePropertyDocument(dbDocs[i]); err != nil {
+			log.Printf("⚠️ Failed to save document %d: %v", i, err)
+		}
+	}
 
 	render.JSON(w, r, map[string]any{
-		"status":      "success",
-		"tx_hash":     tx.Hash().Hex(),
-		"files_count": len(dbDocs),
-		"message":     "Transaction submitted. Property will be created on blockchain and saved to database via event listener.",
+		"status":        "success",
+		"tx_hash":       result.TxHash,
+		"property_id":   property.ID.String(),
+		"asset_address": result.AssetAddress,
+		"token_address": result.TokenAddress,
+		"files_count":   len(dbDocs),
+		"message":       "Property created successfully on blockchain and saved to database.",
 	})
 }
 
@@ -264,7 +301,7 @@ func inferDocType(filename string) string {
 	}
 }
 
-func (handler *RequestHandler) createPropertyOnChain(p *PropertyPayload, dataHash string) (*types.Transaction, error) {
+func (handler *RequestHandler) createPropertyOnChain(p *PropertyPayload, dataHash string) (*blockchain.PropertyCreationResult, error) {
 	if handler.chain == nil {
 		return nil, fmt.Errorf("blockchain service not available")
 	}

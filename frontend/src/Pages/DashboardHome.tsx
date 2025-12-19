@@ -3,8 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "../Components/atoms/Button";
 import { api } from "../lib/api";
 import { useWallet } from "../hooks/useWallet";
-import type { Property } from "../types";
+import type { Property, User } from "../types";
 import { ethers } from "ethers";
+import { getAdminWalletState } from "../lib/wallet";
+
+const BALANCE_MULTIPLIER = 1000000; // 1 SepoliaETH = 1,000,000 ETH in system
 
 const Card = ({
   title,
@@ -36,8 +39,45 @@ function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [walletBalance, setWalletBalance] = useState<string>("0");
+  const [user, setUser] = useState<User | null>(null);
+  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
   const navigate = useNavigate();
-  const { isConnected, address, provider } = useWallet();
+  const { isConnected, address, provider, connectRegisteredWallet } = useWallet();
+
+  // Load user data
+  useEffect(() => {
+    const userStr = localStorage.getItem("user");
+    if (userStr) {
+      setUser(JSON.parse(userStr));
+    }
+  }, []);
+
+  // Auto-connect wallet on page load
+  useEffect(() => {
+    const autoConnectWallet = async () => {
+      if (user && user.WalletAddress && !autoConnectAttempted) {
+        setAutoConnectAttempted(true);
+
+        // Check if we're already connected to the correct wallet
+        const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
+
+        if (!isCorrectWallet) {
+          console.log('🔗 Auto-connecting wallet for user:', user.Email);
+          try {
+            await connectRegisteredWallet(user.WalletAddress);
+            console.log('✅ Wallet auto-connection successful');
+          } catch (err) {
+            console.error('❌ Wallet auto-connect failed:', err);
+            // Don't retry, just log the error
+          }
+        } else {
+          console.log('✅ Already connected to correct wallet');
+        }
+      }
+    };
+
+    autoConnectWallet();
+  }, [user, autoConnectAttempted, address, connectRegisteredWallet]);
 
   useEffect(() => {
     const fetchProperties = async () => {
@@ -55,25 +95,53 @@ function DashboardHome() {
     fetchProperties();
   }, []);
 
-  // Fetch wallet balance when connected
+  // Fetch wallet balance - ALWAYS use user's registered wallet address
   useEffect(() => {
     const fetchWalletBalance = async () => {
-      if (isConnected && address && provider) {
+      const userAddress = user?.WalletAddress;
+      
+      if (!userAddress) {
+        console.log("ℹ️ No user wallet address available for balance check");
+        setWalletBalance("0");
+        return;
+      }
+      
+      // Always fetch balance for user's registered wallet address
+      if (provider) {
         try {
-          const balance = await provider.getBalance(address);
-          const balanceInEth = ethers.formatEther(balance);
-          setWalletBalance(balanceInEth);
+          console.log(`💰 Fetching ETH balance for user's registered wallet: ${userAddress}`);
+          const balance = await provider.getBalance(userAddress);
+          const onChainBalanceEth = Number(ethers.formatEther(balance));
+          const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
+          console.log(
+            `✅ Balance fetched: ${onChainBalanceEth} SepoliaETH, scaled: ${scaledBalance} ETH`
+          );
+          setWalletBalance(scaledBalance);
         } catch (err) {
-          console.error("Failed to fetch wallet balance:", err);
+          console.error("❌ Failed to fetch wallet balance:", err);
           setWalletBalance("0");
         }
       } else {
-        setWalletBalance("0");
+        // Fallback: Use admin wallet provider
+        try {
+          console.log("🔄 Using admin wallet for balance check");
+          const adminWallet = await getAdminWalletState();
+          const balance = await adminWallet.provider.getBalance(userAddress);
+          const onChainBalanceEth = Number(ethers.formatEther(balance));
+          const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
+          console.log(
+            `✅ Admin wallet balance (on-chain): ${onChainBalanceEth} SepoliaETH, scaled: ${scaledBalance} ETH`
+          );
+          setWalletBalance(scaledBalance);
+        } catch (err) {
+          console.error("❌ Failed to fetch wallet balance:", err);
+          setWalletBalance("0");
+        }
       }
     };
 
     fetchWalletBalance();
-  }, [isConnected, address, provider]);
+  }, [user, isConnected, address, provider]);
 
   // Compute dynamic values from existing data
   const avgPrice = properties.length > 0

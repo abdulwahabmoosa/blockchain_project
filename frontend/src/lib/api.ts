@@ -5,8 +5,8 @@ import type {
   UploadResponse,
 } from "../types";
 
-// Use direct backend URL in development, proxy in production
-const BASE_URL = import.meta.env.DEV ? "http://localhost:3000" : "/api";
+// Use backend service name for Docker, localhost for local development
+const BASE_URL = import.meta.env.DEV ? "/api" : "/api";
 
 const getHeaders = () => {
   const token = localStorage.getItem("token");
@@ -137,11 +137,12 @@ export const api = {
 
   approveUser: async (
     wallet_address: string
-  ): Promise<{ status: string; tx_hash: string; approved: boolean }> => {
-    const response = await fetch(`${BASE_URL}/approve-user`, {
+  ): Promise<{ status: string; tx_hash: string; approved?: boolean }> => {
+    // Use /users/approval endpoint which waits for mining and updates the database
+    const response = await fetch(`${BASE_URL}/users/approval`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ wallet_address }),
+      body: JSON.stringify({ wallet_address, status: "approved" }),
     });
     return handleResponse(response);
   },
@@ -149,7 +150,8 @@ export const api = {
   rejectUser: async (
     wallet_address: string
   ): Promise<{ status: string; message: string }> => {
-    const response = await fetch(`${BASE_URL}/approve-user`, {
+    // Use /users/approval endpoint which waits for mining and updates the database
+    const response = await fetch(`${BASE_URL}/users/approval`, {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify({ wallet_address, status: "rejected" }),

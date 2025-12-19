@@ -89,6 +89,7 @@ export const checkApprovalStatus = async (
   walletAddress: string,
   provider: BrowserProvider | ethers.AbstractProvider
 ): Promise<boolean> => {
+  console.log('🔧 checkApprovalStatus v2.0 - NEW CODE LOADED'); // Unique marker to verify new code
   const approvalServiceAddress = addresses.ApprovalService;
 
   // Validate inputs
@@ -96,16 +97,39 @@ export const checkApprovalStatus = async (
     throw new Error(`Invalid wallet address: ${walletAddress}`);
   }
 
-  if (!approvalServiceAddress || !ethers.isAddress(approvalServiceAddress)) {
+  // Check if contract is deployed (not a zero address)
+  if (!approvalServiceAddress || approvalServiceAddress === "0x0000000000000000000000000000000000000000") {
+    console.log(`⚠️ ApprovalService contract not deployed locally. Assuming user is not approved.`);
+    return false; // Assume not approved if contract not deployed
+  }
+
+  if (!ethers.isAddress(approvalServiceAddress)) {
     throw new Error(`Invalid approval service address: ${approvalServiceAddress}`);
   }
 
   console.log(`🔍 Checking approval for ${walletAddress} on contract ${approvalServiceAddress}`);
   console.log(`📋 Contract details:`, {
     approvalServiceAddress,
-    walletAddress,
-    providerConnection: provider.connection?.url || 'unknown'
+    walletAddress
   });
+
+  // First, check if contract exists at the address
+  try {
+    const contractCode = await provider.getCode(approvalServiceAddress);
+    if (!contractCode || contractCode === "0x" || contractCode === "0x0") {
+      console.log(`⚠️ No contract deployed at ${approvalServiceAddress}. This may indicate:`);
+      console.log(`   - Contracts not deployed to this network`);
+      console.log(`   - Wrong network selected in wallet`);
+      console.log(`   - RPC endpoint issue`);
+      console.log(`   Returning false - caller should check persisted approvals as fallback.`);
+      return false;
+    }
+    console.log(`✅ Contract exists at ${approvalServiceAddress} (bytecode length: ${contractCode.length})`);
+  } catch (codeCheckError: any) {
+    console.warn(`⚠️ Failed to check contract code at ${approvalServiceAddress}:`, codeCheckError);
+    console.warn(`   This may be an RPC issue. Caller should check persisted approvals as fallback.`);
+    // Continue anyway - might still be able to call
+  }
 
   // Create a contract instance (read-only)
   const approvalContract = new ethers.Contract(
@@ -139,11 +163,54 @@ export const checkApprovalStatus = async (
       console.log(`✅ Approval check successful for ${walletAddress}: ${isApproved}`);
       return isApproved;
 
-    } catch (error) {
+    } catch (error: any) {
+      // IMMEDIATELY check for BAD_DATA errors - don't retry these
+      // Check error code, message, and string representation
+      const errorCode = error?.code || error?.info?.error?.code || error?.info?.code;
+      const errorMessage = String(error?.message || '');
+      const errorString = String(error || '');
+      
+      // DEBUG: Log error structure to understand what we're dealing with
+      console.log('🔍 ERROR DEBUG:', {
+        errorCode,
+        errorMessage,
+        hasCodeBadData: errorCode === 'BAD_DATA',
+        messageHasDecode: errorMessage.includes('could not decode result data'),
+        messageHasBadData: errorMessage.includes('BAD_DATA'),
+        errorStringHasBadData: errorString.includes('BAD_DATA')
+      });
+      
+      const isBadDataError = 
+        errorCode === 'BAD_DATA' || 
+        errorCode === 'CALL_EXCEPTION' ||
+        errorMessage.includes('could not decode result data') ||
+        errorMessage.includes('BAD_DATA') ||
+        errorMessage.includes('value="0x"') ||
+        errorString.includes('BAD_DATA') ||
+        errorString.includes('could not decode') ||
+        errorString.includes('code=BAD_DATA');
+      
+      if (isBadDataError) {
+        console.log(`✅ DETECTED BAD_DATA ERROR - Returning false immediately`);
+        console.log(`⚠️ Contract call failed with BAD_DATA/CALL_EXCEPTION (contract may not exist or method not available at ${approvalServiceAddress}). Assuming user is not approved.`);
+        return false;
+      }
+      
       console.warn(`⚠️ Approval check attempt ${attempt} failed for ${walletAddress}:`, error);
+      
+      // Log detailed error info for debugging (only if not BAD_DATA)
+      const errorDetails = {
+        code: error.code,
+        message: error.message,
+        reason: error.reason,
+        info: error.info,
+        infoCode: error.info?.error?.code,
+        errorString: String(error)
+      };
+      console.warn(`📋 Error details:`, errorDetails);
       lastError = error;
 
-      // Wait before retry (exponential backoff)
+      // Wait before retry (exponential backoff) - only for other types of errors
       if (attempt < 3) {
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }

@@ -203,4 +203,3 @@ func listenForRevenueClaims(chain *blockchain.ChainService, database *db.Databas
 		}
 	}
 }
-

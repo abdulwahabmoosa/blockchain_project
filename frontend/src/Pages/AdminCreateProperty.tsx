@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Upload, X, FileText, CheckCircle } from "lucide-react";
 import { Button } from "../Components/atoms/Button";
@@ -29,12 +29,13 @@ function AdminCreateProperty() {
   const [isCheckingBlockchain, setIsCheckingBlockchain] = useState(false);
   const { isConnected, provider } = useWallet();
 
-  // Check blockchain approval status for users
+  // Check approval status for users - uses blockchain first, falls back to database
   const checkBlockchainApproval = async (users: User[]) => {
-    console.log('🔄 Starting blockchain approval check for create property...');
+    console.log('🔄 Starting approval check for create property (v2.0 - with DB fallback)...');
     setIsCheckingBlockchain(true);
 
     let blockchainProvider: ethers.BrowserProvider | ethers.AbstractProvider | null = provider;
+    let useBlockchain = true;
 
     // If MetaMask is not connected, use admin wallet for blockchain operations
     if (!isConnected || !provider) {
@@ -44,14 +45,14 @@ function AdminCreateProperty() {
         blockchainProvider = adminWallet.provider;
         console.log('✅ Admin wallet connected for blockchain operations');
       } catch (error) {
-        console.error('❌ Failed to connect admin wallet:', error);
-        setIsCheckingBlockchain(false);
-        return users;
+        console.error('❌ Failed to connect admin wallet, will use database fallback:', error);
+        useBlockchain = false;
       }
     }
 
     if (users.length === 0) {
       console.log('ℹ️ No users to check');
+      setIsCheckingBlockchain(false);
       return users;
     }
 
@@ -65,35 +66,59 @@ function AdminCreateProperty() {
           continue;
         }
 
-        try {
-          console.log(`🔍 Checking approval status for ${user.Email} (${user.WalletAddress})`);
+        let isApproved = false;
 
-          // Add timeout to blockchain check
-          const checkPromise = checkApprovalStatus(user.WalletAddress, blockchainProvider!);
-          const timeoutPromise = new Promise<boolean>((_, reject) =>
-            setTimeout(() => reject(new Error('Blockchain check timeout')), 3000)
-          );
+        // First, try blockchain check if available
+        if (useBlockchain && blockchainProvider) {
+          try {
+            console.log(`🔍 Checking blockchain approval for ${user.Email} (${user.WalletAddress})`);
 
-          const isApproved = await Promise.race([checkPromise, timeoutPromise]);
-          console.log(`✅ Approval status for ${user.Email}: ${isApproved}`);
+            // Add timeout to blockchain check
+            const checkPromise = checkApprovalStatus(user.WalletAddress, blockchainProvider);
+            const timeoutPromise = new Promise<boolean>((_, reject) =>
+              setTimeout(() => reject(new Error('Blockchain check timeout')), 3000)
+            );
 
-          if (isApproved) {
-            approvedUsers.push(user);
+            isApproved = await Promise.race([checkPromise, timeoutPromise]);
+            console.log(`📡 Blockchain approval status for ${user.Email}: ${isApproved}`);
+
+          } catch (err) {
+            console.warn(`⚠️ Blockchain check failed for ${user.Email}, using database fallback:`, err);
+            isApproved = false; // Will fall through to database check
           }
+        }
 
-        } catch (err) {
-          console.error(`❌ Failed to check approval for ${user.Email}:`, err);
-          // Skip users we can't check - only include confirmed approved users
+        // If blockchain check didn't confirm approval, check database as fallback
+        if (!isApproved) {
+          // Check database approval_status field
+          const dbApproved = user.approval_status === 'approved';
+          console.log(`📋 Database approval status for ${user.Email}: ${user.approval_status} -> ${dbApproved}`);
+          
+          if (dbApproved) {
+            console.log(`✅ ${user.Email} approved via database (blockchain unavailable or returned false)`);
+            isApproved = true;
+          }
+        }
+
+        if (isApproved) {
+          approvedUsers.push(user);
+          console.log(`✅ ${user.Email} added to approved wallets list`);
+        } else {
+          console.log(`❌ ${user.Email} not approved (neither blockchain nor database)`);
         }
       }
 
-      console.log(`✅ Found ${approvedUsers.length} blockchain-approved wallets`);
+      console.log(`✅ Found ${approvedUsers.length} approved wallets (blockchain + DB fallback)`);
       return approvedUsers;
 
     } catch (err) {
-      console.error('❌ Blockchain approval check failed:', err);
-      // Return empty array if blockchain check fails completely
-      return [];
+      console.error('❌ Approval check failed:', err);
+      
+      // Last resort fallback: return users approved in database
+      console.log('🔄 Using database-only fallback for approved wallets...');
+      const dbApprovedUsers = users.filter(user => user.approval_status === 'approved');
+      console.log(`📋 Found ${dbApprovedUsers.length} database-approved wallets as fallback`);
+      return dbApprovedUsers;
     } finally {
       setIsCheckingBlockchain(false);
     }
@@ -217,6 +242,14 @@ function AdminCreateProperty() {
               Back to Dashboard
             </Button>
             <Button
+              variant="outline"
+              size="md"
+              className="border-[#6d41ff] text-[#6d41ff] hover:bg-[#6d41ff]/10"
+              onClick={() => navigate("/admin/properties")}
+            >
+              View Properties
+            </Button>
+            <Button
               variant="primary"
               size="md"
               className="bg-[#6d41ff] hover:bg-[#5b2fff] text-white"
@@ -263,7 +296,7 @@ function AdminCreateProperty() {
               className="w-full px-4 py-3 rounded-xl border border-[#1f1f1f] bg-[#0f0f0f] text-white focus:outline-none focus:border-[#6d41ff] cursor-pointer"
             >
               <option value="">
-                {walletsLoading || isCheckingBlockchain ? "Loading blockchain-approved wallets..." : "Select a blockchain-approved wallet..."}
+                {walletsLoading || isCheckingBlockchain ? "Loading approved wallets..." : "Select an approved wallet..."}
               </option>
               {approvedWallets.map((user) => (
                 <option key={user.WalletAddress} value={user.WalletAddress}>
@@ -273,7 +306,7 @@ function AdminCreateProperty() {
               ))}
             </select>
             <p className="text-xs text-gray-500">
-              Only blockchain-approved wallets can own properties
+              Only approved wallets can own properties
             </p>
           </div>
         </div>

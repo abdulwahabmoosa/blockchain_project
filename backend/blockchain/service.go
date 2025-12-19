@@ -120,10 +120,10 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	if err != nil {
 		log.Printf("⚠️ Failed to get approval service address from registry: %v", err)
 		return &ChainService{
-			Client:     client,
-			PrivateKey: privateKey,
-			ChainID:    chainID,
-			Registry:   registry,
+			Client:          client,
+			PrivateKey:      privateKey,
+			ChainID:         chainID,
+			Registry:        registry,
 			PropertyFactory: factory,
 			// Approval and other contracts will be nil
 		}, nil
@@ -132,10 +132,10 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	if err != nil {
 		log.Printf("⚠️ Failed to connect to approval service contract: %v", err)
 		return &ChainService{
-			Client:     client,
-			PrivateKey: privateKey,
-			ChainID:    chainID,
-			Registry:   registry,
+			Client:          client,
+			PrivateKey:      privateKey,
+			ChainID:         chainID,
+			Registry:        registry,
 			PropertyFactory: factory,
 			// Approval and other contracts will be nil
 		}, nil
@@ -145,12 +145,12 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	if err != nil {
 		log.Printf("⚠️ Failed to get revenue distribution address from registry: %v", err)
 		return &ChainService{
-			Client:     client,
-			PrivateKey: privateKey,
-			ChainID:    chainID,
-			Registry:   registry,
+			Client:          client,
+			PrivateKey:      privateKey,
+			ChainID:         chainID,
+			Registry:        registry,
 			PropertyFactory: factory,
-			Approval:   approval,
+			Approval:        approval,
 			// Revenue contract will be nil
 		}, nil
 	}
@@ -158,12 +158,12 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	if err != nil {
 		log.Printf("⚠️ Failed to connect to revenue distribution contract: %v", err)
 		return &ChainService{
-			Client:     client,
-			PrivateKey: privateKey,
-			ChainID:    chainID,
-			Registry:   registry,
+			Client:          client,
+			PrivateKey:      privateKey,
+			ChainID:         chainID,
+			Registry:        registry,
 			PropertyFactory: factory,
-			Approval:   approval,
+			Approval:        approval,
 			// Revenue contract will be nil
 		}, nil
 	}
@@ -205,8 +205,16 @@ func (s *ChainService) WaitForTx(txHash common.Hash) (*types.Receipt, error) {
 	}
 }
 
-// CreateProperty deploys a new property via the Factory
-func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, valuation, supply int64) (*types.Transaction, error) {
+// PropertyCreationResult holds the result of creating a property on-chain
+type PropertyCreationResult struct {
+	AssetAddress string
+	TokenAddress string
+	TxHash       string
+	PropertyName string
+}
+
+// CreateProperty deploys a new property via the Factory and waits for confirmation
+func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, valuation, supply int64) (*PropertyCreationResult, error) {
 	if s.PropertyFactory == nil {
 		log.Printf("⚠️ Property factory contract not available - blockchain service in limited mode")
 		return nil, fmt.Errorf("property factory contract not deployed - deploy contracts to enable property creation")
@@ -231,8 +239,52 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 	supplyBig := big.NewInt(supply)
 	supplyBig.Mul(supplyBig, weiMultiplier)
 
-	// tokenName and tokenSymbol are derived for simplicity here
-	return s.PropertyFactory.CreateProperty(auth, owner, name, symbol, dataHash, valBig, supplyBig, name+" Token", "TKN")
+	log.Printf("🔄 Submitting property creation transaction to blockchain...")
+
+	// Submit transaction
+	tx, err := s.PropertyFactory.CreateProperty(auth, owner, name, symbol, dataHash, valBig, supplyBig, name+" Token", "TKN")
+	if err != nil {
+		return nil, fmt.Errorf("failed to submit transaction: %v", err)
+	}
+
+	log.Printf("✅ Transaction submitted: %s", tx.Hash().Hex())
+	log.Printf("⏳ Waiting for transaction to be mined...")
+
+	// Wait for transaction to be mined
+	receipt, err := s.WaitForTx(tx.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("failed to wait for transaction: %v", err)
+	}
+
+	// Check if transaction succeeded
+	if receipt.Status != types.ReceiptStatusSuccessful {
+		return nil, fmt.Errorf("transaction failed on-chain with status: %d", receipt.Status)
+	}
+
+	log.Printf("✅ Transaction mined successfully in block: %d", receipt.BlockNumber)
+
+	// Parse PropertyRegistered event from logs
+	for _, vLog := range receipt.Logs {
+		event, err := s.PropertyFactory.ParsePropertyRegistered(*vLog)
+		if err != nil {
+			continue // Not the event we're looking for
+		}
+
+		log.Printf("✅ PropertyRegistered event found:")
+		log.Printf("   Owner: %s", event.Owner.Hex())
+		log.Printf("   Asset Address: %s", event.PropertyAsset.Hex())
+		log.Printf("   Token Address: %s", event.PropertyToken.Hex())
+		log.Printf("   Metadata Hash: %s", event.PropertyDataHash)
+
+		return &PropertyCreationResult{
+			AssetAddress: event.PropertyAsset.Hex(),
+			TokenAddress: event.PropertyToken.Hex(),
+			TxHash:       tx.Hash().Hex(),
+			PropertyName: name,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("PropertyRegistered event not found in transaction logs")
 }
 
 // DistributeRevenue deposits funds into the Revenue contract

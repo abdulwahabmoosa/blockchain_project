@@ -257,18 +257,20 @@ export const verifyWalletMatch = (
 /**
  * Create admin wallet connection for backend operations
  * This uses the admin private key for direct blockchain operations
+ * Always uses Sepolia network since contracts are deployed there
  */
 export const createAdminWalletConnection = async () => {
   try {
-    // Use Sepolia RPC endpoint
+    // Always use Sepolia RPC - contracts are deployed on Sepolia
     const rpcUrl = 'https://ethereum-sepolia-rpc.publicnode.com';
+
     const provider = new ethers.JsonRpcProvider(rpcUrl);
 
     // Admin private key
     const adminPrivateKey = '0x65f24585f0bafc504a5d88a5cc4b7eb8b10ff71aab7f36284f16161414c15b6b';
     const adminWallet = new ethers.Wallet(adminPrivateKey, provider);
 
-    console.log('🔑 Admin wallet connected:', adminWallet.address);
+    console.log(`🔑 Admin wallet connected (Sepolia):`, adminWallet.address);
 
     return {
       address: adminWallet.address,
@@ -290,6 +292,8 @@ export const getAdminWalletState = async () => {
 };
 
 export const getContractAddresses = () => {
+  // Always use Sepolia contract addresses - contracts are deployed on Sepolia
+  console.log('🌐 Using Sepolia contract addresses');
   return contractAddresses;
 };
 

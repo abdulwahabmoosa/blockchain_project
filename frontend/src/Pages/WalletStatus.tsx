@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState } from "react";
 import {
   Wallet,
   Copy,
@@ -18,7 +18,7 @@ import { api } from "../lib/api";
 import type { User, Property } from "../types";
 import { ethers } from "ethers";
 
-const BALANCE_MULTIPLIER = 100000;
+const BALANCE_MULTIPLIER = 1000000; // 1 SepoliaETH = 1,000,000 ETH in system
 
 const StatCard = ({
   title,
@@ -48,6 +48,7 @@ function WalletStatus() {
   const [user, setUser] = useState<User | null>(null);
   const [copied, setCopied] = useState(false);
   const [walletBalance, setWalletBalance] = useState<string>("0");
+  const [balanceLoading, setBalanceLoading] = useState(true);
   const [blockchainApproved, setBlockchainApproved] = useState<boolean | null>(null);
   const [properties, setProperties] = useState<Property[]>([]);
   const [tokenBalances, setTokenBalances] = useState<Record<string, string>>({});
@@ -65,8 +66,8 @@ function WalletStatus() {
     amount: "",
     transferring: false,
   });
-  const { isConnected, address, provider } = useWallet();
-  const lastCheckedAddress = useRef<string | null>(null);
+  const { isConnected, address, provider, connectRegisteredWallet } = useWallet();
+  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
 
   useEffect(() => {
     const userStr = localStorage.getItem("user");
@@ -75,50 +76,96 @@ function WalletStatus() {
     }
   }, []);
 
-// Fetch wallet balance - use connected wallet or admin wallet as fallback
+  // Auto-connect wallet on page load
+  useEffect(() => {
+    const autoConnectWallet = async () => {
+      if (user && user.WalletAddress && !autoConnectAttempted) {
+        setAutoConnectAttempted(true);
+
+        // Check if we're already connected to the correct wallet
+        const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
+
+        if (!isCorrectWallet) {
+          console.log('🔗 Auto-connecting wallet for user:', user.Email);
+          try {
+            await connectRegisteredWallet(user.WalletAddress);
+            console.log('✅ Wallet auto-connection successful');
+          } catch (err) {
+            console.error('❌ Wallet auto-connect failed:', err);
+            // Don't retry, just log the error
+          }
+        } else {
+          console.log('✅ Already connected to correct wallet');
+        }
+      }
+    };
+
+    autoConnectWallet();
+  }, [user, autoConnectAttempted, address, connectRegisteredWallet]);
+
+// Fetch wallet balance - always use user's registered wallet address
 useEffect(() => {
     const fetchWalletBalance = async () => {
       const userAddress = user?.WalletAddress;
       if (!userAddress) {
         console.log("ℹ️ No user wallet address available for balance check");
         setWalletBalance("0");
+        setBalanceLoading(false);
         return;
       }
   
+      setBalanceLoading(true);
       try {
-        console.log(`💰 Fetching balance for ${userAddress}`);
+        console.log(`💰 Fetching balance for user's registered wallet: ${userAddress}`);
+        console.log(`📊 Current state: isConnected=${isConnected}, hasProvider=${!!provider}, address=${address}`);
   
-        // First try with user's connected MetaMask wallet if available and matches
-        if (isConnected && address && provider && address.toLowerCase() === userAddress.toLowerCase()) {
-          console.log("🔗 Using connected MetaMask wallet for balance");
+        // First try with connected MetaMask provider if available (can query any address)
+        if (provider) {
+          console.log("🔗 Using available provider for balance check");
           const balance = await provider.getBalance(userAddress);
           const onChainBalanceEth = Number(ethers.formatEther(balance));
           const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
           console.log(
-            `✅ MetaMask balance (on-chain): ${onChainBalanceEth} ETH, scaled: ${scaledBalance} ETH`
+            `✅ Balance fetched: ${onChainBalanceEth} SepoliaETH, scaled: ${scaledBalance} ETH`
           );
           setWalletBalance(scaledBalance);
+          setBalanceLoading(false);
           return;
         }
   
         // Fallback: Use admin wallet provider (same as used for approval checks)
-        console.log("🔄 Using admin wallet for balance check");
+        console.log("🔄 MetaMask provider not available, using admin wallet provider for balance check");
         const adminWallet = await getAdminWalletState();
+        console.log(`📡 Admin wallet provider ready, fetching balance for ${userAddress}`);
         const balance = await adminWallet.provider.getBalance(userAddress);
         const onChainBalanceEth = Number(ethers.formatEther(balance));
         const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
         console.log(
-          `✅ Admin wallet balance (on-chain): ${onChainBalanceEth} ETH, scaled: ${scaledBalance} ETH`
+          `✅ Balance fetched via admin provider: ${onChainBalanceEth} SepoliaETH, scaled: ${scaledBalance} ETH`
         );
         setWalletBalance(scaledBalance);
-      } catch (err) {
+        setBalanceLoading(false);
+      } catch (err: any) {
         console.error("❌ Failed to fetch wallet balance:", err);
+        console.error("Error message:", err?.message);
+        console.error("Error stack:", err?.stack);
         setWalletBalance("0");
+        setBalanceLoading(false);
       }
     };
   
-    fetchWalletBalance();
-  }, [user, isConnected, address, provider]); 
+    // Only fetch if we have user data
+    if (user && user.WalletAddress) {
+      // Add a small delay to ensure wallet connection is established
+      const timeoutId = setTimeout(() => {
+        fetchWalletBalance();
+      }, 100);
+      
+      return () => clearTimeout(timeoutId);
+    } else {
+      setBalanceLoading(false);
+    }
+  }, [user, isConnected, provider, address]); 
 
   const copyAddress = () => {
     if (user?.WalletAddress) {
@@ -184,6 +231,20 @@ useEffect(() => {
     }
   };
 
+  // Helper functions to get/set persisted approvals (same as AdminManageUsers)
+  const getPersistedApprovals = (): Record<string, boolean> => {
+    try {
+      const persisted = localStorage.getItem("userApprovals");
+      return persisted ? JSON.parse(persisted) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const setPersistedApprovals = (approvals: Record<string, boolean>) => {
+    localStorage.setItem("userApprovals", JSON.stringify(approvals));
+  };
+
   // Check blockchain approval status - re-run when user data or wallet connection changes
   useEffect(() => {
     const checkApproval = async () => {
@@ -197,36 +258,72 @@ useEffect(() => {
       try {
         console.log(`🔍 Checking blockchain approval status for ${userAddress}`);
 
+        let approved = false;
+
         // First try with user's connected wallet if available
         if (isConnected && address && provider && address.toLowerCase() === userAddress.toLowerCase()) {
           console.log('🔗 Using connected MetaMask wallet for approval check');
-          const approved = await checkApprovalStatus(userAddress, provider);
+          approved = await checkApprovalStatus(userAddress, provider);
           console.log(`✅ MetaMask approval check result for ${userAddress}: ${approved}`);
-          setBlockchainApproved(approved);
-          return;
+        } else {
+          // Fallback to admin wallet for checking approval status
+          console.log('🔄 Using admin wallet for approval check');
+          const adminWallet = await getAdminWalletState();
+          approved = await checkApprovalStatus(userAddress, adminWallet.provider);
+          console.log(`✅ Admin wallet approval check result for ${userAddress}: ${approved}`);
+          console.log(`🔍 Debug info:`, {
+            userAddress,
+            adminProvider: !!adminWallet.provider,
+            adminAddress: adminWallet.address,
+            isSameAsAdmin: userAddress.toLowerCase() === adminWallet.address.toLowerCase()
+          });
         }
 
-        // Fallback to admin wallet for checking approval status
-        console.log('🔄 Using admin wallet for approval check');
-        const adminWallet = await getAdminWalletState();
-        const approved = await checkApprovalStatus(userAddress, adminWallet.provider);
-        console.log(`✅ Admin wallet approval check result for ${userAddress}: ${approved}`);
-        console.log(`🔍 Debug info:`, {
-          userAddress,
-          adminProvider: !!adminWallet.provider,
-          adminAddress: adminWallet.address,
-          isSameAsAdmin: userAddress.toLowerCase() === adminWallet.address.toLowerCase()
-        });
+        // If blockchain check returned false, check database status (NOT localStorage)
+        if (!approved) {
+          console.log('⚠️ Blockchain returned false, checking database status...');
+          
+          // DATABASE IS THE SOURCE OF TRUTH
+          // Check user's approval_status from the stored user object (set at login)
+          const userApprovalStatus = user?.approval_status;
+          const isApprovedInDb = userApprovalStatus === "approved";
+          
+          if (isApprovedInDb) {
+            console.log(`✅ Database confirms user is approved (approval_status: ${userApprovalStatus})`);
+            setBlockchainApproved(true);
+            return;
+          }
+          
+          console.log(`⏳ User is pending approval (approval_status: ${userApprovalStatus || 'undefined'})`);
+        }
+        
+        // If blockchain check returned true, persist it
+        if (approved) {
+          const persistedApprovals = getPersistedApprovals();
+          persistedApprovals[userAddress] = true;
+          setPersistedApprovals(persistedApprovals);
+          console.log(`💾 Persisted blockchain approval for ${userAddress}`);
+        }
+        
         setBlockchainApproved(approved);
 
       } catch (err) {
         console.error("❌ Failed to check blockchain approval status:", err);
+        
+        // On error, check DATABASE status (NOT localStorage)
+        if (user?.approval_status === "approved") {
+          console.log(`✅ Error occurred but database confirms user is approved`);
+          setBlockchainApproved(true);
+          return;
+        }
+        
+        console.log(`⏳ Error occurred, user approval_status: ${user?.approval_status || 'unknown'}`);
         setBlockchainApproved(null);
       }
     };
 
     checkApproval();
-  }, [user?.WalletAddress, isConnected, address, provider]); // Re-run when user data or wallet changes
+  }, [user?.WalletAddress, user?.approval_status, isConnected, address, provider]); // Re-run when user data or wallet changes
 
   // Fetch properties and token balances
   useEffect(() => {
@@ -306,9 +403,51 @@ useEffect(() => {
         </div>
 
         <div className="pt-4 border-t border-white/10">
-          <p className="text-sm text-white/80">Total Balance</p>
-          <p className="text-4xl font-bold mt-1">{walletBalance} ETH</p>
-          <p className="text-sm text-white/60 mt-1">$0.00 USD</p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm text-white/80">Total Balance</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                const userAddress = user?.WalletAddress;
+                if (!userAddress) {
+                  alert("No wallet address found. Please ensure you're logged in.");
+                  return;
+                }
+                try {
+                  console.log("🔄 Manual balance refresh triggered");
+                  let balance;
+                  if (provider) {
+                    balance = await provider.getBalance(userAddress);
+                  } else {
+                    const adminWallet = await getAdminWalletState();
+                    balance = await adminWallet.provider.getBalance(userAddress);
+                  }
+                  const onChainBalanceEth = Number(ethers.formatEther(balance));
+                  const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
+                  setWalletBalance(scaledBalance);
+                  console.log(`✅ Balance refreshed: ${scaledBalance} ETH`);
+                } catch (err) {
+                  console.error("❌ Failed to refresh balance:", err);
+                  alert(`Failed to refresh balance: ${err}`);
+                }
+              }}
+              className="border-white/30 text-white hover:bg-white/10 text-xs"
+            >
+              Refresh
+            </Button>
+          </div>
+          <p className="text-4xl font-bold mt-1">
+            {balanceLoading ? "Loading..." : `${walletBalance} ETH`}
+          </p>
+          <p className="text-sm text-white/60 mt-1">
+            {isConnected ? "Connected to MetaMask" : "Using admin provider"}
+            {user?.WalletAddress && (
+              <span className="block text-xs mt-1 opacity-70">
+                Wallet: {formatAddress(user.WalletAddress)}
+              </span>
+            )}
+          </p>
         </div>
 
         <div className="flex gap-3">

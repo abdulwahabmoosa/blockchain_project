@@ -20,7 +20,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const activeHref = currentPage || location.pathname;
-  const { isConnected, address, connect, disconnect, resetLoading, isLoading, chainId, switchNetwork, error, clearError, totalTokenBalance } = useWallet();
+  const { isConnected, address, disconnect, chainId, switchNetwork, error, clearError, totalTokenBalance } = useWallet();
 
   const isAdmin = user?.Role === "admin";
 
@@ -57,14 +57,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
   const handleLogout = async () => {
     console.log('🔐 Logging out user');
 
+    // Disconnect wallet first
+    console.log('🔌 Disconnecting wallet on logout');
+    await disconnect();
+
     // Clear authentication data
     localStorage.removeItem("auth");
     localStorage.removeItem("token");
     localStorage.removeItem("user");
-
-    // Disconnect wallet to force fresh connection on next login
-    console.log('🔌 Disconnecting wallet on logout');
-    await disconnect();
 
     setIsLoggedIn(false);
     setUser(null);
@@ -101,8 +101,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
 
           {/* RIGHT: Desktop Login/Wallet Buttons */}
           <div className="hidden md:flex items-center gap-3">
-            {/* Wallet Connect Section */}
-            {isConnected ? (
+            {/* Wallet Connect Section - Only show when logged in (auto-connection handles connection) */}
+            {isLoggedIn && isConnected && (
               <div className="flex items-center gap-2">
                 {chainId !== 11155111 && (
                   <Button
@@ -135,28 +135,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
                     ✕
                   </Button>
                 </div>
-              </div>
-            ) : (
-              <div className="relative flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={isLoading ? resetLoading : connect}
-                  disabled={false}
-                  className="border-[#262626] bg-[#1A1A1A] text-white hover:bg-[#262626]"
-                >
-                  {isLoading ? "Stuck? Click to clear & retry" : "Connect Wallet"}
-                </Button>
-                {localStorage.getItem('wallet_disconnected') === 'true' && (
-                  <span className="text-xs text-yellow-400" title="Wallet was disconnected - manual reconnection required">
-                    🔒
-                  </span>
-                )}
-                {error && (
-                  <div className="absolute top-full mt-2 right-0 bg-red-900/90 border border-red-700 rounded-md px-3 py-2 text-sm text-red-200 max-w-xs">
-                    {error}
-                  </div>
-                )}
               </div>
             )}
 
@@ -209,8 +187,8 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
           isOpen={isMobileMenuOpen}
           ctaButton={
             <div className="w-full space-y-2">
-              {/* Wallet Section */}
-              {isConnected ? (
+              {/* Wallet Section - Only show when logged in (auto-connection handles connection) */}
+              {isLoggedIn && isConnected && (
                 <>
                   {chainId !== 11155111 && (
                     <Button
@@ -239,23 +217,6 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
                     </div>
                   </div>
                 </>
-              ) : (
-                <div className="w-full space-y-1">
-                <Button
-                  variant="outline"
-                  size="md"
-                  onClick={isLoading ? resetLoading : connect}
-                  disabled={false}
-                  className="border-[#262626] bg-[#1A1A1A] text-white w-full"
-                >
-                  {isLoading ? "Stuck? Click to clear & retry" : "Connect Wallet"}
-                </Button>
-                  {localStorage.getItem('wallet_disconnected') === 'true' && (
-                    <p className="text-xs text-yellow-400 text-center">
-                      🔒 Wallet disconnected - requires manual reconnection
-                    </p>
-                  )}
-                </div>
               )}
 
               {/* Login Section */}

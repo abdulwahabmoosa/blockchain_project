@@ -40,7 +40,7 @@ function AdminManageProperties() {
 
     if (searchQuery) {
       filtered = filtered.filter((property) =>
-        property.Name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (property.Name?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false) ||
         property.OwnerWallet.toLowerCase().includes(searchQuery.toLowerCase())
       );
     }

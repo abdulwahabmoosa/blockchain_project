@@ -197,6 +197,7 @@ function AdminManageUsers() {
 
         try {
           console.log(`🔍 Checking approval status for ${user.Email} (${user.WalletAddress})`);
+          console.log(`📋 Previous approval status: ${user.blockchainApproved}`);
 
           // Add timeout to blockchain check (reduced from 3s to 2s)
           const checkPromise = checkApprovalStatus(user.WalletAddress, blockchainProvider!);
@@ -205,33 +206,55 @@ function AdminManageUsers() {
           );
 
           const blockchainApproved = await Promise.race([checkPromise, timeoutPromise]);
-          console.log(`✅ Approval status for ${user.Email}: ${blockchainApproved}`);
+          console.log(`✅ Approval status for ${user.Email}: ${blockchainApproved} (was: ${user.blockchainApproved})`);
 
-          // CRITICAL: Once approved on blockchain, status should never revert to false
-          const wasPreviouslyApproved = user.blockchainApproved === true;
-
-          if (wasPreviouslyApproved && !blockchainApproved) {
-            console.warn(`⚠️ WARNING: User ${user.Email} was previously approved but blockchain check returned false. Keeping approved status.`);
-            return { ...user, blockchainApproved: true, pendingConfirmation: false };
-          } else if (pendingApprovals[user.WalletAddress] && !blockchainApproved) {
-            console.log(`⏳ Keeping ${user.Email} in pending state`);
-            return { ...user, blockchainApproved: null, pendingConfirmation: true };
-          } else {
-            // Update persisted approvals when status is confirmed
-            if (blockchainApproved === true && user.WalletAddress) {
-              const persistedApprovals = getPersistedApprovals();
-              persistedApprovals[user.WalletAddress] = true;
-              setPersistedApprovals(persistedApprovals);
+          // If blockchain check returned false, trust the DATABASE status (not localStorage)
+          // The database is updated after successful blockchain transactions
+          if (!blockchainApproved) {
+            // Check if there's a pending transaction for this user
+            if (pendingApprovals[user.WalletAddress]) {
+              console.log(`⏳ Keeping ${user.Email} in pending state (transaction not yet mined)`);
+              return { ...user, blockchainApproved: null, pendingConfirmation: true };
             }
-            return { ...user, blockchainApproved, pendingConfirmation: false };
+            
+            // DATABASE IS THE SOURCE OF TRUTH
+            // If database says approved, trust that (blockchain might have contract issues)
+            if (user.IsApproved === true) {
+              console.log(`✅ Blockchain unavailable but database confirms ${user.Email} is approved`);
+              return { ...user, blockchainApproved: true, pendingConfirmation: false };
+            }
+            
+            // If database says pending/not approved, show as not approved
+            console.log(`⏳ ${user.Email} is not approved (database: IsApproved=${user.IsApproved}, blockchain: ${blockchainApproved})`);
+            return { ...user, blockchainApproved: false, pendingConfirmation: false };
           }
+
+          // If blockchain check succeeded and returned true, update persisted approvals
+          if (blockchainApproved === true && user.WalletAddress) {
+            const persistedApprovals = getPersistedApprovals();
+            persistedApprovals[user.WalletAddress] = true;
+            setPersistedApprovals(persistedApprovals);
+            console.log(`💾 Persisted approval status for ${user.Email}`);
+          }
+          
+          return { ...user, blockchainApproved, pendingConfirmation: false };
         } catch (err) {
           console.error(`❌ Failed to check approval for ${user.Email}:`, err);
+          
           // If there's a pending approval, show as pending even if check fails
           if (pendingApprovals[user.WalletAddress]) {
             return { ...user, blockchainApproved: null, pendingConfirmation: true };
           }
-          return user;
+          
+          // DATABASE IS THE SOURCE OF TRUTH when blockchain check fails
+          // Trust the database status, not localStorage
+          if (user.IsApproved === true) {
+            console.log(`✅ Blockchain error but database confirms ${user.Email} is approved`);
+            return { ...user, blockchainApproved: true, pendingConfirmation: false };
+          }
+          
+          console.log(`⏳ Blockchain error, ${user.Email} not approved (database: IsApproved=${user.IsApproved})`);
+          return { ...user, blockchainApproved: false, pendingConfirmation: false };
         }
       };
 
@@ -276,39 +299,73 @@ function AdminManageUsers() {
       return;
     }
 
-    console.log('🔄 Starting loadUsers...');
+    console.log('🔄🔄🔄 UPDATED CODE v3.0 - Starting loadUsers - TIMESTAMP: ' + new Date().toISOString());
     loadUsersRunning.current = true;
     setLoading(true);
     setError("");
 
     try {
-      // Clear persisted approvals to ensure fresh blockchain checks
-      clearPersistedApprovals();
+      // Load persisted approvals to use as fallback (NOT clearing them!)
+      const persistedApprovals = getPersistedApprovals();
+      console.log('📚 Loaded persisted approvals:', persistedApprovals);
 
       // Fetch real users from the backend API
       const usersResponse = await api.getUsers();
+      console.log('📥 Raw API response:', JSON.stringify(usersResponse, null, 2));
 
       // Convert backend user format to frontend format
-      const sampleUsers: ApiUser[] = usersResponse.map((user: any) => ({
-        ID: user.ID,
-        Email: user.Email,
-        Name: user.Name,
-        WalletAddress: user.WalletAddress,
-        Role: user.Role,
-        IsApproved: user.IsApproved
-      }));
+      // Handle both IsApproved (bool) and approval_status (string) fields
+      const sampleUsers: ApiUser[] = usersResponse.map((user: any) => {
+        // Map approval_status string to IsApproved boolean
+        let isApproved = false;
+        if (user.IsApproved !== undefined) {
+          isApproved = Boolean(user.IsApproved);
+        } else if (user.approval_status !== undefined) {
+          // Handle string approval_status: "approved" -> true, others -> false
+          isApproved = user.approval_status === "approved" || user.approval_status === "Approved";
+          console.log(`📋 Mapped approval_status "${user.approval_status}" to IsApproved: ${isApproved} for ${user.Email}`);
+        }
+        
+        return {
+          ID: user.ID,
+          Email: user.Email,
+          Name: user.Name,
+          WalletAddress: user.WalletAddress,
+          Role: user.Role,
+          IsApproved: isApproved
+        };
+      });
+      
+      console.log('📋 Mapped users with IsApproved:', sampleUsers.map(u => ({ email: u.Email, IsApproved: u.IsApproved })));
 
       console.log('📋 Created sample users:', sampleUsers.length);
 
-      // Create users with initial state - always start with null blockchain status
-      // This ensures we always check the blockchain for the most current approval status
+      // Create users with initial state - DATABASE is the source of truth
+      // localStorage is only used as fallback when database says "pending" and blockchain check fails
       const usersWithInitialState: UserWithStatus[] = sampleUsers.map(user => {
-        // Try to find existing user with the same ID to preserve UI state only
+        // Try to find existing user with the same ID to preserve UI state
         const existingUser = users.find(u => u.ID === user.ID);
+
+        // DATABASE IS THE SOURCE OF TRUTH
+        // If database says approved (IsApproved=true from approval_status), trust that
+        // If database says pending (IsApproved=false), we need to check blockchain
+        let preservedStatus: boolean | null = null;
+
+        if (user.IsApproved === true) {
+          // Database says approved - this is the truth
+          preservedStatus = true;
+          console.log(`✅ Database confirms ${user.Email} is approved`);
+        } else {
+          // Database says pending - need to verify with blockchain
+          // Only use localStorage as a very temporary fallback during this session
+          // But still trigger a blockchain check
+          preservedStatus = null; // Force blockchain check
+          console.log(`⏳ ${user.Email} is pending in database - will check blockchain`);
+        }
 
         return {
           ...user,
-          blockchainApproved: null, // Always start with null to force blockchain check
+          blockchainApproved: preservedStatus,
           approving: false, // Reset approving state
           rejecting: false, // Reset rejecting state
           pendingConfirmation: existingUser?.pendingConfirmation ?? false
@@ -367,6 +424,7 @@ function AdminManageUsers() {
     }
   };
 
+  // Function kept for potential future use
   const handleRetryApproval = (user: UserWithStatus) => {
     // Clear pending state and allow retry
     const pendingApprovals = getPendingApprovals();
@@ -380,6 +438,9 @@ function AdminManageUsers() {
     // Also clear any error messages
     setError("");
   };
+  
+  // Reference to suppress unused variable warning (function kept for future use)
+  void handleRetryApproval;
 
   const handleApproveUser = async (user: UserWithStatus) => {
     // Check if user is authenticated
@@ -437,7 +498,7 @@ function AdminManageUsers() {
       setUsers(prev => prev.map(u =>
         u.ID === user.ID ? {
           ...u,
-          blockchainApproved: response.approved,
+          blockchainApproved: response.approved ?? null,
           pendingConfirmation: false
         } : u
       ));
@@ -575,20 +636,11 @@ function AdminManageUsers() {
             variant="outline"
             size="md"
             onClick={async () => {
-              // Clear ALL cached data aggressively
-              console.log('🔄 Manual refresh triggered - clearing ALL cache');
-              clearPersistedApprovals();
-
-              // Also clear any cached approval status in memory
-              setUsers(prevUsers => prevUsers.map(u => ({
-                ...u,
-                blockchainApproved: null,
-                pendingConfirmation: false,
-                approving: false,
-                rejecting: false
-              })));
-
-              // Force reload all users
+              // Refresh users and re-check blockchain status
+              // Preserve persisted approvals - they will be used as fallback if blockchain check fails
+              console.log('🔄 Manual refresh triggered - reloading users and checking blockchain');
+              
+              // Force reload all users (will preserve persisted approvals)
               await loadUsers();
             }}
             disabled={loading || isCheckingBlockchain}
@@ -741,20 +793,6 @@ function AdminManageUsers() {
 
                     {user.blockchainApproved === true ? (
                       <span className="text-xs text-green-400">Already Approved</span>
-                    ) : user.blockchainApproved === false ? (
-                      <span className="text-xs text-red-400">Rejected</span>
-                    ) : user.pendingConfirmation ? (
-                      <div className="flex gap-2 items-center">
-                        <span className="text-yellow-400 text-sm">Transaction Pending...</span>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleRetryApproval(user)}
-                          className="border-yellow-500/50 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 text-xs"
-                        >
-                          Retry
-                        </Button>
-                      </div>
                     ) : user.WalletAddress && user.WalletAddress.trim() !== "" ? (
                       <div className="flex gap-2">
                         <Button

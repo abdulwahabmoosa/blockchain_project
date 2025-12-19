@@ -8,6 +8,10 @@ import { useWallet } from "../hooks/useWallet";
 import { checkApprovalStatus, getTokenBalance } from "../lib/contracts";
 import { formatTokenBalance } from "../utils/format";
 import contractAddresses from "../deployments/sepolia/contract-addresses.json";
+import { ethers } from "ethers";
+import { getAdminWalletState } from "../lib/wallet";
+
+const BALANCE_MULTIPLIER = 1000000; // 1 SepoliaETH = 1,000,000 ETH in system
 
 const Card = ({
   title,
@@ -45,6 +49,7 @@ function AdminDashboard() {
   const [totalUsers, setTotalUsers] = useState<number>(0);
   const [user, setUser] = useState<User | null>(null);
   const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
+  const [walletBalance, setWalletBalance] = useState<string>("0");
   const navigate = useNavigate();
   const { isConnected, address, provider, connectRegisteredWallet } = useWallet();
 
@@ -196,6 +201,54 @@ function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, address, provider]);
 
+  // Fetch wallet ETH balance - ALWAYS use user's registered wallet address
+  useEffect(() => {
+    const fetchWalletBalance = async () => {
+      const userAddress = user?.WalletAddress;
+      
+      if (!userAddress) {
+        console.log("ℹ️ No user wallet address available for balance check");
+        setWalletBalance("0");
+        return;
+      }
+
+      // Always fetch balance for user's registered wallet address
+      if (provider) {
+        try {
+          console.log(`💰 Fetching ETH balance for user's registered wallet: ${userAddress}`);
+          const balance = await provider.getBalance(userAddress);
+          const onChainBalanceEth = Number(ethers.formatEther(balance));
+          const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
+          console.log(
+            `✅ Balance fetched: ${onChainBalanceEth} SepoliaETH, scaled: ${scaledBalance} ETH`
+          );
+          setWalletBalance(scaledBalance);
+        } catch (err) {
+          console.error("❌ Failed to fetch wallet balance:", err);
+          setWalletBalance("0");
+        }
+      } else {
+        // Fallback: Use admin wallet provider
+        try {
+          console.log("🔄 Using admin wallet for balance check");
+          const adminWallet = await getAdminWalletState();
+          const balance = await adminWallet.provider.getBalance(userAddress);
+          const onChainBalanceEth = Number(ethers.formatEther(balance));
+          const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
+          console.log(
+            `✅ Admin wallet balance (on-chain): ${onChainBalanceEth} SepoliaETH, scaled: ${scaledBalance} ETH`
+          );
+          setWalletBalance(scaledBalance);
+        } catch (err) {
+          console.error("❌ Failed to fetch wallet balance:", err);
+          setWalletBalance("0");
+        }
+      }
+    };
+
+    fetchWalletBalance();
+  }, [user, provider]);
+
   if (!user || user.Role !== "admin") {
     return null; // Will redirect in useEffect
   }
@@ -221,7 +274,7 @@ function AdminDashboard() {
         </header>
 
         {/* Admin Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <Card
             title="Total Properties"
             value={properties.length.toString()}
@@ -232,6 +285,12 @@ function AdminDashboard() {
             value={totalBalanceLoading ? "Loading..." : totalBalance}
             sub="Across all properties"
             accent="bg-green-500"
+          />
+          <Card
+            title="Wallet Balance"
+            value={`${walletBalance} ETH`}
+            sub="From MetaMask (1 SepoliaETH = 1,000,000 ETH)"
+            accent="bg-yellow-500"
           />
           <Card
             title="Total registered users"
