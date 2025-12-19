@@ -12,6 +12,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
+        // When running in Docker Compose, use service name 'backend'
+        // Services on the same Docker network can communicate using service names
         target: 'http://backend:3000',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),

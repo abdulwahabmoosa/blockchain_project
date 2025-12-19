@@ -13,11 +13,16 @@ import {
 import { Button } from "../Components/atoms/Button";
 import type { User as UserType } from "../types";
 import { api } from "../lib/api";
+import { useWallet } from "../hooks/useWallet";
+import { checkApprovalStatus } from "../lib/contracts";
 
 function MyAccount() {
   const navigate = useNavigate();
+  const { provider, address, isManuallyConnected } = useWallet();
   const [user, setUser] = useState<UserType | null>(null);
   const [copied, setCopied] = useState(false);
+  const [blockchainApproved, setBlockchainApproved] = useState<boolean | null>(null);
+  const [checkingApproval, setCheckingApproval] = useState(false);
 
   // Password form state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -39,6 +44,48 @@ function MyAccount() {
       setUser(JSON.parse(userStr));
     }
   }, []);
+
+  // Check blockchain approval status
+  useEffect(() => {
+    const checkApproval = async () => {
+      if (!user?.WalletAddress) {
+        setBlockchainApproved(null);
+        return;
+      }
+
+      setCheckingApproval(true);
+      try {
+        // Try to use connected provider if available
+        if (isManuallyConnected && provider && address?.toLowerCase() === user.WalletAddress.toLowerCase()) {
+          const approved = await checkApprovalStatus(user.WalletAddress, provider);
+          setBlockchainApproved(approved);
+          console.log(`✅ Blockchain approval check: ${approved}`);
+        } else {
+          // Fallback: try to create a provider for read-only check
+          if (typeof window !== 'undefined' && window.ethereum) {
+            const { ethers } = await import('ethers');
+            const readProvider = new ethers.BrowserProvider(window.ethereum);
+            const approved = await checkApprovalStatus(user.WalletAddress, readProvider);
+            setBlockchainApproved(approved);
+            console.log(`✅ Blockchain approval check (read-only): ${approved}`);
+          } else {
+            console.log('⚠️ Cannot check approval: no provider available');
+            setBlockchainApproved(null);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to check blockchain approval:', err);
+        setBlockchainApproved(null);
+      } finally {
+        setCheckingApproval(false);
+      }
+    };
+
+    checkApproval();
+    // Re-check every 10 seconds
+    const interval = setInterval(checkApproval, 10000);
+    return () => clearInterval(interval);
+  }, [user?.WalletAddress, provider, address, isManuallyConnected]);
 
   const copyAddress = () => {
     if (user?.WalletAddress) {
@@ -186,15 +233,27 @@ function MyAccount() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span
-            className={`text-xs px-2 py-1 rounded-full ${
-              user?.IsApproved
-                ? "bg-green-500/20 text-green-400"
-                : "bg-yellow-500/20 text-yellow-400"
-            }`}
-          >
-            {user?.IsApproved ? "Verified" : "Pending Verification"}
-          </span>
+          {checkingApproval ? (
+            <span className="text-xs px-2 py-1 rounded-full bg-gray-500/20 text-gray-400">
+              Checking...
+            </span>
+          ) : (
+            <span
+              className={`text-xs px-2 py-1 rounded-full ${
+                blockchainApproved === true
+                  ? "bg-green-500/20 text-green-400"
+                  : blockchainApproved === false
+                  ? "bg-yellow-500/20 text-yellow-400"
+                  : "bg-gray-500/20 text-gray-400"
+              }`}
+            >
+              {blockchainApproved === true 
+                ? "Verified" 
+                : blockchainApproved === false
+                ? "Pending Verification"
+                : "Status Unknown"}
+            </span>
+          )}
         </div>
 
         <Button

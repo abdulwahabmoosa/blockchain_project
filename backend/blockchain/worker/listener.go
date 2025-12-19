@@ -3,16 +3,13 @@ package worker
 import (
 	"backend/blockchain"
 	"backend/blockchain/approval_service"
-	"backend/blockchain/property_asset"
 	"backend/blockchain/property_factory"
 	"backend/blockchain/revenue_distribution"
 	"backend/db"
 	"backend/db/models"
 	"log"
-	"math/big"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/google/uuid"
 )
 
@@ -58,43 +55,29 @@ func listenForProperties(chain *blockchain.ChainService, database *db.Database) 
 			time.Sleep(5 * time.Second)
 		case event := <-sink:
 			log.Printf("📢 Event: Property Registered at %s", event.PropertyAsset.Hex())
-			valFloat, _ := new(big.Float).SetInt(event.Valuation).Float64()
-
-			// Fetch property name from PropertyAsset contract
-			propertyName := ""
-			if chain.Client != nil {
-				propertyAssetAddr := common.HexToAddress(event.PropertyAsset.Hex())
-				propertyAsset, err := property_asset.NewPropertyAsset(propertyAssetAddr, chain.Client)
-				if err == nil {
-					name, err := propertyAsset.Name(nil)
-					if err == nil {
-						propertyName = name
-						log.Printf("✅ Fetched property name: %s", propertyName)
-					} else {
-						log.Printf("⚠️ Failed to fetch property name: %v", err)
-					}
-				} else {
-					log.Printf("⚠️ Failed to connect to PropertyAsset: %v", err)
-				}
+			
+			// Check if property already exists by asset address OR token address to prevent duplicates
+			assetAddr := event.PropertyAsset.Hex()
+			tokenAddr := event.PropertyToken.Hex()
+			
+			// Check by asset address first
+			existingProp, err := database.GetPropertyByAssetAddress(assetAddr)
+			if err == nil {
+				log.Printf("⚠️ Property already exists with asset address %s (ID: %s), skipping duplicate creation", assetAddr, existingProp.ID)
+				continue
+			}
+			
+			// Also check by token address as fallback
+			existingProp, err = database.GetPropertyByTokenAddress(tokenAddr)
+			if err == nil {
+				log.Printf("⚠️ Property already exists with token address %s (ID: %s), skipping duplicate creation", tokenAddr, existingProp.ID)
+				continue
 			}
 
-			newProp := models.Property{
-				ID:                  uuid.New(),
-				Name:                propertyName,
-				OnchainAssetAddress: event.PropertyAsset.Hex(),
-				OnchainTokenAddress: event.PropertyToken.Hex(),
-				OwnerWallet:         event.Owner.Hex(),
-				MetadataHash:        event.PropertyDataHash,
-				Valuation:           valFloat,
-				Status:              models.StatusActive,
-				CreatedAt:           time.Now(),
-			}
-
-			if err := database.CreateProperty(newProp); err != nil {
-				log.Printf("❌ DB Error saving property: %v", err)
-			} else {
-				log.Printf("✅ Property saved: %s", newProp.ID)
-			}
+			// Property not found in database - this event listener only checks for duplicates
+			// Property creation is handled by the API endpoints (ApprovePropertyUploadRequest, CreateProperty)
+			// This listener serves as a backup duplicate prevention mechanism only
+			log.Printf("ℹ️ Property event detected but property not found in database. Property creation should be handled by API endpoints.")
 		}
 	}
 }

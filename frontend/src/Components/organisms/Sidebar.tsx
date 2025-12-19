@@ -10,6 +10,7 @@ import {
   LogOut,
   Menu,
   X,
+  MessageSquare,
 } from "lucide-react";
 import { SidebarItem } from "../molecules/SidebarItem";
 import { Brand } from "../molecules/Brand";
@@ -21,6 +22,7 @@ const navItems = [
   { icon: Building2, label: "View Properties", href: "/dashboard/properties" },
   { icon: Upload, label: "Upload Property", href: "/dashboard/upload" },
   { icon: TrendingUp, label: "My Investments", href: "/dashboard/investments" },
+  { icon: MessageSquare, label: "Messages", href: "/dashboard/messages" },
   { icon: Wallet, label: "Wallet", href: "/dashboard/wallet" },
   { icon: UserCog, label: "My Account", href: "/dashboard/account" },
 ];

@@ -5,7 +5,7 @@ import { api } from "../lib/api";
 import { useWallet } from "../hooks/useWallet";
 import type { Property, User } from "../types";
 import { ethers } from "ethers";
-import { getAdminWalletState } from "../lib/wallet";
+import { getTokenBalance, transferTokens } from "../lib/contracts";
 
 const BALANCE_MULTIPLIER = 1000000; // 1 SepoliaETH = 1,000,000 ETH in system
 
@@ -40,9 +40,19 @@ function DashboardHome() {
   const [error, setError] = useState("");
   const [walletBalance, setWalletBalance] = useState<string>("0");
   const [user, setUser] = useState<User | null>(null);
-  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
   const navigate = useNavigate();
-  const { isConnected, address, provider, connectRegisteredWallet } = useWallet();
+  const { provider, isManuallyConnected, signer } = useWallet();
+  const [allPendingTransfers, setAllPendingTransfers] = useState<Array<{
+    id: string;
+    property_id: string;
+    buyer_wallet: string;
+    amount: string;
+    payment_tx_hash: string;
+    token_tx_hash: string;
+    purchase_price: string;
+    created_at: string;
+  }>>([]);
+  const [approvingTransfer, setApprovingTransfer] = useState<string | null>(null);
 
   // Load user data
   useEffect(() => {
@@ -52,38 +62,152 @@ function DashboardHome() {
     }
   }, []);
 
-  // Auto-connect wallet on page load
+  // Fetch pending transfers for owner
   useEffect(() => {
-    const autoConnectWallet = async () => {
-      if (user && user.WalletAddress && !autoConnectAttempted) {
-        setAutoConnectAttempted(true);
-
-        // Check if we're already connected to the correct wallet
-        const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
-
-        if (!isCorrectWallet) {
-          console.log('🔗 Auto-connecting wallet for user:', user.Email);
-          try {
-            await connectRegisteredWallet(user.WalletAddress);
-            console.log('✅ Wallet auto-connection successful');
-          } catch (err) {
-            console.error('❌ Wallet auto-connect failed:', err);
-            // Don't retry, just log the error
-          }
-        } else {
-          console.log('✅ Already connected to correct wallet');
-        }
+    const fetchPendingTransfers = async () => {
+      if (!user) return;
+      try {
+        const transfers = await api.getMyPendingTransfers();
+        setAllPendingTransfers(transfers);
+        console.log(`📋 Found ${transfers.length} pending transfer(s) across all properties`);
+      } catch (err) {
+        console.error("Failed to fetch pending transfers:", err);
       }
     };
 
-    autoConnectWallet();
-  }, [user, autoConnectAttempted, address, connectRegisteredWallet]);
+    fetchPendingTransfers();
+    // Poll every 5 seconds
+    const interval = setInterval(fetchPendingTransfers, 5000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // Handle approving transfer from dashboard
+  const handleApproveTransfer = async (transfer: any) => {
+    if (!signer || !provider) {
+      alert("Please connect your wallet to approve transfers");
+      return;
+    }
+
+    setApprovingTransfer(transfer.id);
+
+    try {
+      // Get property to get token address
+      const property = await api.getProperty(transfer.property_id);
+      
+      console.log(`✅ Owner approving transfer: ${transfer.amount} tokens to ${transfer.buyer_wallet}`);
+      
+      // Convert amount to wei
+      const tokenAmountWei = ethers.parseUnits(transfer.amount, 18);
+      
+      // Transfer tokens from owner to buyer
+      const transferTx = await transferTokens(
+        property.OnchainTokenAddress,
+        transfer.buyer_wallet,
+        tokenAmountWei,
+        signer
+      );
+
+      console.log(`📤 Token transfer transaction sent: ${transferTx.hash}`);
+      const receipt = await transferTx.wait();
+      console.log(`✅ Token transfer confirmed in block: ${receipt?.blockNumber}`);
+
+      // Update database with token transfer hash
+      try {
+        await api.updateTokenPurchaseTxHash(
+          transfer.property_id,
+          transfer.id,
+          transferTx.hash
+        );
+        console.log(`✅ Purchase record updated with token transfer hash`);
+      } catch (updateErr: any) {
+        console.error("❌ Failed to update purchase record:", updateErr);
+      }
+
+      // Refresh pending transfers
+      const updatedTransfers = await api.getMyPendingTransfers();
+      setAllPendingTransfers(updatedTransfers);
+
+      alert(`✅ Transfer Approved!\n\n${transfer.amount} tokens transferred to ${transfer.buyer_wallet}\n\nToken TX: ${transferTx.hash}\nPayment TX: ${transfer.payment_tx_hash}`);
+    } catch (err: any) {
+      console.error("Failed to approve transfer:", err);
+      alert(`Failed to approve transfer: ${err.message || "Unknown error"}`);
+    } finally {
+      setApprovingTransfer(null);
+    }
+  };
 
   useEffect(() => {
     const fetchProperties = async () => {
+      if (!user || !user.WalletAddress) {
+        setLoading(false);
+        return;
+      }
+
       try {
-        const data = await api.getProperties();
-        setProperties(data);
+        // Get all properties
+        const allProperties = await api.getProperties();
+        
+        // Use user's registered wallet address from database
+        const userWalletAddress = user.WalletAddress.toLowerCase();
+        
+        console.log("🔍 DashboardHome: Filtering properties for wallet:", userWalletAddress);
+        console.log("📋 Total properties found:", allProperties.length);
+
+        // Filter properties where user is owner OR has token balance > 0
+        const filteredProperties: Property[] = [];
+
+        for (const property of allProperties) {
+          const propertyOwnerWallet = property.OwnerWallet?.toLowerCase() || "";
+          const isOwner = propertyOwnerWallet === userWalletAddress;
+          
+          // If user is owner, always include by default (they created it)
+          // But check token balance if wallet is manually connected
+          if (isOwner) {
+            // Only check token balance if wallet is manually connected
+            if (isManuallyConnected && provider && property.OnchainTokenAddress) {
+              try {
+                const balance = await getTokenBalance(
+                  property.OnchainTokenAddress,
+                  userWalletAddress,
+                  provider
+                );
+                // Only exclude if user has explicitly sold ALL tokens (balance is exactly 0)
+                if (balance > 0n) {
+                  filteredProperties.push(property);
+                }
+              } catch (err) {
+                // If balance check fails, include it anyway since user is owner
+                filteredProperties.push(property);
+              }
+            } else {
+              // If wallet not manually connected, still show owner properties
+              filteredProperties.push(property);
+            }
+          } else {
+            // User is not owner, check if they have tokens (investor)
+            // Only check if wallet is manually connected
+            if (isManuallyConnected && provider && property.OnchainTokenAddress) {
+              try {
+                const balance = await getTokenBalance(
+                  property.OnchainTokenAddress,
+                  userWalletAddress,
+                  provider
+                );
+                // Include if user has tokens
+                if (balance > 0n) {
+                  filteredProperties.push(property);
+                }
+              } catch (err) {
+                // If balance check fails, don't include it (not owner, so need proof of investment)
+              }
+            }
+            // If wallet not manually connected, don't show investor properties
+          }
+        }
+        
+        console.log(`✅ DashboardHome: Filtered properties: ${filteredProperties.length} out of ${allProperties.length}`);
+
+        setProperties(filteredProperties);
       } catch (err: any) {
         console.error("Failed to fetch properties:", err);
         setError("Failed to load properties");
@@ -93,7 +217,7 @@ function DashboardHome() {
     };
 
     fetchProperties();
-  }, []);
+  }, [user, isManuallyConnected, provider]);
 
   // Fetch wallet balance - ALWAYS use user's registered wallet address
   useEffect(() => {
@@ -106,8 +230,8 @@ function DashboardHome() {
         return;
       }
       
-      // Always fetch balance for user's registered wallet address
-      if (provider) {
+      // Only fetch balance if wallet is manually connected
+      if (isManuallyConnected && provider) {
         try {
           console.log(`💰 Fetching ETH balance for user's registered wallet: ${userAddress}`);
           const balance = await provider.getBalance(userAddress);
@@ -122,26 +246,13 @@ function DashboardHome() {
           setWalletBalance("0");
         }
       } else {
-        // Fallback: Use admin wallet provider
-        try {
-          console.log("🔄 Using admin wallet for balance check");
-          const adminWallet = await getAdminWalletState();
-          const balance = await adminWallet.provider.getBalance(userAddress);
-          const onChainBalanceEth = Number(ethers.formatEther(balance));
-          const scaledBalance = (onChainBalanceEth * BALANCE_MULTIPLIER).toFixed(2);
-          console.log(
-            `✅ Admin wallet balance (on-chain): ${onChainBalanceEth} SepoliaETH, scaled: ${scaledBalance} ETH`
-          );
-          setWalletBalance(scaledBalance);
-        } catch (err) {
-          console.error("❌ Failed to fetch wallet balance:", err);
-          setWalletBalance("0");
-        }
+        // Don't fetch balance until wallet is manually connected
+        setWalletBalance("0");
       }
     };
 
     fetchWalletBalance();
-  }, [user, isConnected, address, provider]);
+  }, [user, isManuallyConnected, provider]);
 
   // Compute dynamic values from existing data
   const avgPrice = properties.length > 0
@@ -170,6 +281,91 @@ function DashboardHome() {
       {error && (
         <div className="text-red-500 bg-red-500/10 p-4 rounded-xl border border-red-500/20">
           {error}
+        </div>
+      )}
+
+      {/* Pending Transfers Notification (Owner Only) */}
+      {allPendingTransfers.length > 0 && (
+        <div className="bg-yellow-900/20 border border-yellow-600/50 rounded-xl p-6 space-y-4 mb-6">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-400 font-semibold text-lg">⚠️ Pending Token Transfers</span>
+            <span className="bg-yellow-600 text-black px-2 py-1 rounded text-sm font-bold">
+              {allPendingTransfers.length}
+            </span>
+          </div>
+          <p className="text-gray-300 text-sm">
+            Buyers have sent payments and are waiting for you to approve token transfers. Click on a property to view details or approve below.
+          </p>
+          <div className="space-y-3 mt-4 max-h-96 overflow-y-auto">
+            {allPendingTransfers.map((transfer: any) => {
+              // Find property name
+              const property = properties.find(p => p.ID === transfer.property_id);
+              const propertyName = property?.Name || `Property #${transfer.property_id.substring(0, 8)}`;
+              
+              return (
+                <div
+                  key={transfer.id}
+                  className="bg-[#1a1a1a] border border-gray-700 rounded-lg p-4 space-y-3"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="space-y-1">
+                      <p className="text-sm text-gray-400">Property</p>
+                      <p 
+                        className="font-semibold cursor-pointer hover:text-[#6d41ff]"
+                        onClick={() => navigate(`/properties/${transfer.property_id}`)}
+                      >
+                        {propertyName}
+                      </p>
+                    </div>
+                    <div className="text-right space-y-1">
+                      <p className="text-sm text-gray-400">Amount</p>
+                      <p className="font-semibold">{transfer.amount} tokens</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-gray-400">Buyer</p>
+                      <p className="font-mono text-xs">{transfer.buyer_wallet}</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-400">Payment Received</p>
+                      <p className="font-mono text-xs">{transfer.purchase_price} ETH</p>
+                    </div>
+                    <div>
+                      <p className="text-gray-400">Payment TX</p>
+                      <a
+                        href={`https://sepolia.etherscan.io/tx/${transfer.payment_tx_hash}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[#6d41ff] hover:underline font-mono text-xs"
+                      >
+                        {transfer.payment_tx_hash.substring(0, 10)}...
+                      </a>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      onClick={() => navigate(`/properties/${transfer.property_id}`)}
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 border-[#262626] text-gray-400 hover:bg-[#1a1a1a]"
+                    >
+                      View Property
+                    </Button>
+                    <Button
+                      onClick={() => handleApproveTransfer(transfer)}
+                      disabled={approvingTransfer === transfer.id}
+                      variant="primary"
+                      size="sm"
+                      className="flex-1 bg-green-600 hover:bg-green-700"
+                    >
+                      {approvingTransfer === transfer.id ? "Approving..." : "✅ Approve"}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -211,7 +407,7 @@ function DashboardHome() {
                 <Card
                   title="Total Properties"
                   value={properties.length.toString()}
-                  sub="Platform"
+                  sub="My Properties"
                 />
                 <Card
                   title="Active"

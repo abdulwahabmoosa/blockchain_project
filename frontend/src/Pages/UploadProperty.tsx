@@ -3,14 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { Upload, X, FileText, CheckCircle } from "lucide-react";
 import { Button } from "../Components/atoms/Button";
 import { api } from "../lib/api";
-import type { User } from "../types";
 
 function UploadProperty() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const [txHash, setTxHash] = useState("");
 
   // Form state
   const [name, setName] = useState("");
@@ -45,7 +43,6 @@ function UploadProperty() {
       if (!userStr) {
         throw new Error("User not found. Please log in again.");
       }
-      const user: User = JSON.parse(userStr);
 
       if (files.length === 0) {
         throw new Error("Please upload at least one document");
@@ -56,22 +53,19 @@ function UploadProperty() {
       }
 
       setUploading(true);
-      const response = await api.createProperty(
+      await api.createPropertyUploadRequest(
         {
-          owner_address: user.WalletAddress,
           name,
           symbol,
-          data_hash: "", // Not needed - files are sent directly
           valuation: parseFloat(valuation),
           token_supply: tokenSupply,
         },
         files
       );
 
-      setTxHash(response.tx_hash);
       setSuccess(true);
     } catch (err: any) {
-      setError(err.message || "Failed to create property");
+      setError(err.message || "Failed to submit property upload request");
     } finally {
       setLoading(false);
       setUploading(false);
@@ -85,26 +79,21 @@ function UploadProperty() {
           <div className="flex justify-center">
             <CheckCircle className="text-green-500" size={64} />
           </div>
-          <h2 className="text-2xl font-semibold">Property Created!</h2>
+          <h2 className="text-2xl font-semibold">Request Submitted!</h2>
           <p className="text-gray-400">
-            Your property has been successfully tokenized on the blockchain.
+            Your property upload request has been submitted successfully. An admin will review it shortly.
           </p>
-          {txHash && (
-            <div className="bg-[#0f0f0f] rounded-xl p-4 text-left">
-              <p className="text-xs text-gray-500 mb-1">Transaction Hash</p>
-              <p className="text-sm font-mono text-gray-300 break-all">
-                {txHash}
-              </p>
-            </div>
-          )}
+          <p className="text-sm text-gray-500">
+            You can check the status of your request in the Messages section.
+          </p>
           <div className="flex gap-3 justify-center pt-4">
             <Button
               variant="outline"
               size="md"
               className="border-[#262626] text-white hover:bg-[#1a1a1a]"
-              onClick={() => navigate("/dashboard/properties")}
+              onClick={() => navigate("/dashboard/messages")}
             >
-              View Properties
+              View Messages
             </Button>
             <Button
               variant="primary"
@@ -115,10 +104,9 @@ function UploadProperty() {
                 setName("");
                 setValuation("");
                 setFiles([]);
-                setTxHash("");
               }}
             >
-              Upload Another
+              Submit Another
             </Button>
           </div>
         </div>
@@ -131,7 +119,7 @@ function UploadProperty() {
       <header>
         <h1 className="text-3xl font-semibold">Upload Property</h1>
         <p className="text-sm text-gray-400">
-          Tokenize a new property on the blockchain
+          Submit a property upload request for admin approval
         </p>
       </header>
 
@@ -257,7 +245,7 @@ function UploadProperty() {
             className="bg-[#6d41ff] hover:bg-[#5b2fff] text-white flex-1"
             disabled={loading || uploading || files.length === 0}
           >
-            {loading ? "Creating Property..." : "Create Property"}
+            {loading ? "Submitting Request..." : "Submit Request"}
           </Button>
         </div>
       </form>

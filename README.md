@@ -1,34 +1,6 @@
 # Real Estate Tokenization Platform (RWA)
 
 A robust backend for tokenizing Real World Assets (Real Estate) on the Ethereum blockchain. This system bridges the gap between Web2 (PostgreSQL, IPFS) and Web3 (Smart Contracts), handling user identity, document verification, and asset minting.
-
-## 🚀 Key Features
-
-- **User Identity**:
-    - JWT-based authentication linked to Ethereum Wallet addresses.
-    - **Profile Management**: Users can update details, reset passwords, or delete accounts (Hard Delete).
-- **Role-Based Access Control (RBAC)**:
-    - **Users**: Register, submit properties, view assets.
-    - **Admins**: Review and Approve/Reject users and property listings via protected endpoints.
-- **Smart Property Creation**:
-    - **Atomic Multipart Upload**: Uploads files (Deeds, Images) and metadata in a single request.
-    - **Auto-Inference**: Automatically detects document types (e.g., "Deed", "Inspection") based on filenames.
-    - **IPFS**: Decentralized storage using Pinata.
-- **Blockchain Integration**:
-    - **Event Listeners**: Background workers sync on-chain events (Minting, Approvals) with the local database.
-    - **Smart Contracts**: Integration with Property Factory and Compliance contracts (Sepolia/Hardhat).
-- **Infrastructure**: Fully containerized with Docker & Docker Compose.
-
----
-
-## 🛠 Tech Stack
-
-- **Backend**: Go (Golang) using Chi Router
-- **Database**: PostgreSQL (GORM ORM)
-- **Blockchain**: Hardhat (Local Node) or Sepolia Testnet
-- **Storage**: IPFS (Pinata)
-- **Containerization**: Docker & Docker Compose
-
 ---
 
 ## ⚡ Quick Start (Docker)

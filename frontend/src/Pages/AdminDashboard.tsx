@@ -46,12 +46,23 @@ function AdminDashboard() {
   const [totalBalance, setTotalBalance] = useState<string>("0");
   const [totalBalanceLoading, setTotalBalanceLoading] = useState(false);
   const [isApproved, setIsApproved] = useState<boolean | null>(null);
+  const [isCheckingApproval, setIsCheckingApproval] = useState(false);
   const [totalUsers, setTotalUsers] = useState<number>(0);
   const [user, setUser] = useState<User | null>(null);
   const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
   const [walletBalance, setWalletBalance] = useState<string>("0");
   const navigate = useNavigate();
-  const { isConnected, address, provider, connectRegisteredWallet } = useWallet();
+  const { isConnected, address, provider, signer, connectRegisteredWallet } = useWallet();
+
+  // Debug wallet state
+  useEffect(() => {
+    console.log("🔗 Wallet state:", {
+      isConnected,
+      address: address?.substring(0, 10) + "...",
+      hasProvider: !!provider,
+      hasSigner: !!signer
+    });
+  }, [isConnected, address, provider, signer]);
 
   // Check if user is admin
   useEffect(() => {
@@ -72,21 +83,27 @@ function AdminDashboard() {
       if (user && user.WalletAddress && !autoConnectAttempted) {
         setAutoConnectAttempted(true);
 
+        console.log('🔍 Auto-connect check:', { user: user?.Email, walletAddress: user?.WalletAddress, currentAddress: address, isConnected });
+
         // Check if we're already connected to the correct wallet
         const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
 
+        console.log('🔗 Wallet match check:', { isCorrectWallet, expected: user.WalletAddress, current: address });
+
         if (!isCorrectWallet) {
-          console.log('🔗 Auto-connecting admin wallet for user:', user.Email);
+          console.log('🔗 Auto-connecting registered wallet for admin:', user.Email);
           try {
             await connectRegisteredWallet(user.WalletAddress);
-            console.log('✅ Admin wallet auto-connection successful');
+            console.log('✅ Auto-connection successful');
           } catch (err) {
-            console.error('❌ Admin wallet auto-connect failed:', err);
+            console.error('❌ Auto-connect failed:', err);
             // Don't retry, just log the error
           }
         } else {
-          console.log('✅ Admin already connected to correct wallet');
+          console.log('✅ Already connected to correct wallet');
         }
+      } else {
+        console.log('⏭️ Skipping auto-connect: no user or wallet address');
       }
     };
 
@@ -135,27 +152,24 @@ function AdminDashboard() {
   useEffect(() => {
     const checkApproval = async () => {
       if (isConnected && address && provider) {
+        setIsCheckingApproval(true);
         try {
           const approved = await checkApprovalStatus(address, provider);
           setIsApproved(approved);
         } catch (err) {
           console.error("Failed to check approval status:", err);
           setIsApproved(null);
+        } finally {
+          setIsCheckingApproval(false);
         }
       } else {
         setIsApproved(null);
+        setIsCheckingApproval(false);
       }
     };
 
     checkApproval();
   }, [isConnected, address, provider]);
-
-  // Also check approval status when component mounts (in case user just got approved)
-  useEffect(() => {
-    if (user && isConnected && address && provider) {
-      checkApprovalStatus(address, provider).then(setIsApproved).catch(() => setIsApproved(null));
-    }
-  }, [user]); // This will trigger when user data changes
 
   // Fetch token balances when wallet is connected and properties are loaded
   useEffect(() => {
@@ -282,14 +296,18 @@ function AdminDashboard() {
           />
           <Card
             title="Your Token Holdings"
-            value={totalBalanceLoading ? "Loading..." : totalBalance}
-            sub="Across all properties"
+            value={isConnected && address
+              ? totalBalanceLoading
+                ? "Loading..."
+                : totalBalance
+              : "Connect Wallet"}
+            sub={isConnected && address ? "Across all properties" : "Connect to view"}
             accent="bg-green-500"
           />
           <Card
             title="Wallet Balance"
-            value={`${walletBalance} ETH`}
-            sub="From MetaMask (1 SepoliaETH = 1,000,000 ETH)"
+            value={isConnected && address ? `${walletBalance} ETH` : "Connect Wallet"}
+            sub={isConnected && address ? "From MetaMask (1 SepoliaETH = 1,000,000 ETH)" : "Connect to view"}
             accent="bg-yellow-500"
           />
           <Card
@@ -306,13 +324,20 @@ function AdminDashboard() {
               <div className="space-y-1">
                 <h3 className="text-lg font-semibold">Your Admin Status</h3>
                 <p className="text-sm text-gray-400">
-                  {isApproved === null
-                    ? "Checking approval status..."
+                  {isCheckingApproval
+                    ? "⏳ Checking approval status... (may take 10-15 seconds on slow networks)"
+                    : isApproved === null
+                    ? "⚠️ Unable to check approval status. You can still browse properties."
                     : isApproved
                     ? `✅ Your wallet (${address?.substring(0, 6)}...${address?.substring(38)}) is approved and can perform all admin functions`
                     : `❌ Your wallet (${address?.substring(0, 6)}...${address?.substring(38)}) is not approved. You can still use admin panel but cannot receive tokens.`}
                 </p>
-                {!isApproved && (
+                {isCheckingApproval && (
+                  <p className="text-xs text-yellow-400">
+                    If this takes too long, you can still browse properties but may need approval to invest.
+                  </p>
+                )}
+                {!isApproved && !isCheckingApproval && (
                   <div className="text-xs text-yellow-400 mt-1 space-y-1">
                     <p>💡 Go to "Manage User Approvals" to approve your wallet address</p>
                     <p><strong>Expected admin address:</strong> {contractAddresses.adminAddress}</p>
@@ -320,6 +345,33 @@ function AdminDashboard() {
                       <p><strong>Your connected address:</strong> {address}</p>
                     )}
                   </div>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {isApproved === null && !isCheckingApproval && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={async () => {
+                      setIsCheckingApproval(true);
+                      // Re-run the approval check
+                      if (isConnected && address && provider) {
+                        try {
+                          const approved = await checkApprovalStatus(address, provider);
+                          setIsApproved(approved);
+                        } catch (err) {
+                          console.error("Failed to refresh approval status:", err);
+                          setIsApproved(null);
+                        } finally {
+                          setIsCheckingApproval(false);
+                        }
+                      }
+                    }}
+                    className="border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
+                    disabled={isCheckingApproval}
+                  >
+                    {isCheckingApproval ? "⏳ Checking..." : "🔄 Refresh"}
+                  </Button>
                 )}
               </div>
             </div>

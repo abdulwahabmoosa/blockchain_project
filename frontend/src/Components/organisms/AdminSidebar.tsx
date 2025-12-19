@@ -11,6 +11,7 @@ import {
   X,
   Shield,
   Building2,
+  FileCheck,
 } from "lucide-react";
 import { SidebarItem } from "../molecules/SidebarItem";
 import { Brand } from "../molecules/Brand";
@@ -20,6 +21,7 @@ import logo from "../../assets/blockchain_House-removebg-preview.svg";
 const navItems = [
   { icon: LayoutDashboard, label: "Dashboard", href: "/admin" },
   { icon: Plus, label: "Create Property", href: "/admin/create-property" },
+  { icon: FileCheck, label: "Property Requests", href: "/admin/property-requests" },
   { icon: Users, label: "Manage Users", href: "/admin/users" },
   { icon: Building2, label: "Manage Properties", href: "/admin/properties" },
   { icon: Wallet, label: "Wallet", href: "/admin/wallet" },

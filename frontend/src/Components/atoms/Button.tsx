@@ -1,7 +1,7 @@
 import React from "react";
 import { twMerge } from "tailwind-merge";
 
-interface ButtonProps {
+export interface ButtonProps {
   children: React.ReactNode;
   as?: "button" | "a";
   onClick?: () => void;
@@ -13,6 +13,7 @@ interface ButtonProps {
   type?: "button" | "submit" | "reset";
   rounding?: "none" | "sm" | "md" | "lg" | "full";
   disabled?: boolean;
+  title?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -27,6 +28,7 @@ export const Button: React.FC<ButtonProps> = ({
   rounding = "md",
   disabled = false,
   as: Component = "button",
+  title,
 }) => {
   const variantClasses = {
     primary: "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800",
@@ -61,7 +63,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   if (Component === "a" && href) {
     return (
-      <a href={href} className={classes}>
+      <a href={href} className={classes} title={title}>
         {children}
       </a>
     );
@@ -74,6 +76,7 @@ export const Button: React.FC<ButtonProps> = ({
       style={color ? { color } : undefined}
       type={type}
       disabled={disabled}
+      title={title}
     >
       {children}
     </Component>

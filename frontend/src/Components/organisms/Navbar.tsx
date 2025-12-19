@@ -57,9 +57,13 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage = "/" }) => {
   const handleLogout = async () => {
     console.log('🔐 Logging out user');
 
-    // Disconnect wallet first
+    // Disconnect wallet first (always disconnect on logout)
     console.log('🔌 Disconnecting wallet on logout');
-    await disconnect();
+    try {
+      disconnect();
+    } catch (err) {
+      console.error('Error disconnecting wallet:', err);
+    }
 
     // Clear authentication data
     localStorage.removeItem("auth");

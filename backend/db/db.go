@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 
 	"github.com/google/uuid"
@@ -100,9 +101,10 @@ func (db *Database) seedAdmin() error {
 
 func (db *Database) migrate() error {
 	if err := db.createEnums(); err != nil {
-		return err
+		return fmt.Errorf("failed to create enums: %w", err)
 	}
 
+	log.Println("🔄 Running database migrations...")
 	err := db.db.AutoMigrate(
 		&models.User{},
 		&models.Property{},
@@ -110,12 +112,16 @@ func (db *Database) migrate() error {
 		&models.RevenueDistribution{},
 		&models.RevenueClaim{},
 		&models.Transaction{},
+		&models.PropertyUploadRequest{},
+		&models.PropertyUploadRequestDocument{},
+		&models.TokenPurchase{},
 	)
 
 	if err != nil {
-		return err
+		return fmt.Errorf("migration failed: %w", err)
 	}
 
+	log.Println("✅ Database migrations completed successfully")
 	return db.seedAdmin()
 }
 
@@ -236,6 +242,11 @@ func (db *Database) GetPropertyByTokenAddress(addr string) (result models.Proper
 	return
 }
 
+func (db *Database) GetPropertyByAssetAddress(addr string) (result models.Property, err error) {
+	result, err = gorm.G[models.Property](db.db).Where("onchain_asset_address = ?", addr).First(db.ctx)
+	return
+}
+
 func (db *Database) UpdatePropertyApproval(propertyID string, status models.ApprovalStatus) error {
 	uid, err := uuid.Parse(propertyID)
 	if err != nil {
@@ -305,12 +316,17 @@ func (db *Database) UserExists(email string) (bool, error) {
 }
 
 func (db *Database) GetUserByCredentials(creds auth.LoginCredentials) (user models.User, err error) {
+	if db.db == nil {
+		return user, fmt.Errorf("database connection is nil")
+	}
+	
 	user, err = gorm.G[models.User](db.db).Where("email = ?", creds.Email).First(db.ctx)
 	if err != nil {
-		return
+		// Return the error as-is so the caller can distinguish between "not found" and other errors
+		return user, err
 	}
 	err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(creds.Password))
-	return
+	return user, err
 }
 
 func (db *Database) UpdateUserInfo(userID string, name string, email string) error {
@@ -348,5 +364,133 @@ func (db *Database) UpdatePassword(userID string, newHash string) error {
 	}
 
 	_, err = gorm.G[models.User](db.db).Where("id = ?", uid).Update(db.ctx, "password_hash", newHash)
+	return err
+}
+
+// --- Property Upload Request Methods ---
+
+func (db *Database) CreatePropertyUploadRequest(request models.PropertyUploadRequest) error {
+	return gorm.G[models.PropertyUploadRequest](db.db).Create(db.ctx, &request)
+}
+
+func (db *Database) CreatePropertyUploadRequestDocument(doc models.PropertyUploadRequestDocument) error {
+	return gorm.G[models.PropertyUploadRequestDocument](db.db).Create(db.ctx, &doc)
+}
+
+func (db *Database) GetPropertyUploadRequests() (result []models.PropertyUploadRequest, err error) {
+	result, err = gorm.G[models.PropertyUploadRequest](db.db).Order("created_at DESC").Find(db.ctx)
+	return
+}
+
+func (db *Database) GetPropertyUploadRequestsByUser(walletAddress string) (result []models.PropertyUploadRequest, err error) {
+	result, err = gorm.G[models.PropertyUploadRequest](db.db).
+		Where("wallet_address = ?", walletAddress).
+		Order("created_at DESC").
+		Find(db.ctx)
+	return
+}
+
+func (db *Database) GetPropertyUploadRequestByID(id string) (result models.PropertyUploadRequest, err error) {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return
+	}
+	result, err = gorm.G[models.PropertyUploadRequest](db.db).Where("id = ?", uid).First(db.ctx)
+	return
+}
+
+func (db *Database) UpdatePropertyUploadRequestStatus(id string, status models.ApprovalStatus, reason string) error {
+	uid, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+
+	updates := map[string]interface{}{
+		"status": status,
+	}
+	if reason != "" {
+		updates["rejection_reason"] = reason
+	}
+
+	result := db.db.WithContext(db.ctx).
+		Model(&models.PropertyUploadRequest{}).
+		Where("id = ?", uid).
+		Updates(updates)
+	return result.Error
+}
+
+// --- Token Purchase Methods ---
+
+func (db *Database) CreateTokenPurchase(purchase models.TokenPurchase) error {
+	return gorm.G[models.TokenPurchase](db.db).Create(db.ctx, &purchase)
+}
+
+func (db *Database) GetTokenPurchasesByProperty(propertyID string) (result []models.TokenPurchase, err error) {
+	uid, err := uuid.Parse(propertyID)
+	if err != nil {
+		return nil, err
+	}
+	result, err = gorm.G[models.TokenPurchase](db.db).
+		Where("property_id = ?", uid).
+		Order("created_at DESC").
+		Find(db.ctx)
+	return
+}
+
+func (db *Database) GetTokenStatsByProperty(propertyID string) (totalSold float64, err error) {
+	uid, err := uuid.Parse(propertyID)
+	if err != nil {
+		return 0, err
+	}
+
+	var result struct {
+		TotalSold float64
+	}
+
+	// Use raw SQL to sum the amount column (stored as decimal/string)
+	// PostgreSQL requires casting string to numeric for SUM
+	err = db.db.WithContext(db.ctx).
+		Model(&models.TokenPurchase{}).
+		Select("COALESCE(SUM(amount::numeric), 0) as total_sold").
+		Where("property_id = ?", uid).
+		Scan(&result).Error
+
+	if err != nil {
+		return 0, err
+	}
+
+	return result.TotalSold, nil
+}
+
+func (db *Database) GetTokenPurchasesByBuyer(buyerWallet string) (result []models.TokenPurchase, err error) {
+	result, err = gorm.G[models.TokenPurchase](db.db).
+		Where("buyer_wallet = ?", buyerWallet).
+		Order("created_at DESC").
+		Find(db.ctx)
+	return
+}
+
+// GetPendingTokenPurchasesByProperty gets all pending token purchases (where TokenTxHash = "pending") for a property
+func (db *Database) GetPendingTokenPurchasesByProperty(propertyID string) (result []models.TokenPurchase, err error) {
+	uid, err := uuid.Parse(propertyID)
+	if err != nil {
+		return nil, err
+	}
+	result, err = gorm.G[models.TokenPurchase](db.db).
+		Where("property_id = ? AND token_tx_hash = ?", uid, "pending").
+		Order("created_at DESC").
+		Find(db.ctx)
+	return
+}
+
+// UpdateTokenPurchaseTxHash updates the token transfer transaction hash for a purchase
+func (db *Database) UpdateTokenPurchaseTxHash(purchaseID string, tokenTxHash string) error {
+	uid, err := uuid.Parse(purchaseID)
+	if err != nil {
+		return err
+	}
+	_, err = gorm.G[models.TokenPurchase](db.db).
+		Where("id = ?", uid).
+		Update(db.ctx, "token_tx_hash", tokenTxHash)
 	return err
 }

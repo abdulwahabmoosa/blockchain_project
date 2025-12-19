@@ -13,13 +13,17 @@ services:
         image: docker.io/library/postgres:18.1-alpine3.23
         container_name: blockchain-db
         ports:
-            - "5433:5432"
+            - "5433:5433"
         environment:
             POSTGRES_USER: blockchain-db
             POSTGRES_PASSWORD: TP075164
             POSTGRES_DB: db
+            PGPORT: 5433
+        command: postgres -p 5433
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U blockchain-db -d db"]
+            test: ["CMD-SHELL", "pg_isready -U blockchain-db -d db -p 5433"]
             interval: 5s
             timeout: 5s
             retries: 5
@@ -31,7 +35,7 @@ services:
             - ./backend:/app
         environment:
             <<: *blockchain-env
-            DB_URL: postgres://blockchain-db:TP075164@db:5432/db?sslmode=disable
+            DB_URL: postgres://blockchain-db:TP075164@db:5433/db?sslmode=disable
         depends_on:
             - db
         command: /bin/sh -c "go mod download && go run main.go"
@@ -49,4 +53,8 @@ services:
         ports:
             - "5173:5173"
         depends_on:
-            - backend
+            backend:
+                condition: service_started
+
+volumes:
+    postgres_data:

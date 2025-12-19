@@ -86,6 +86,30 @@ contract PropertyFactory is AccessControl {
         // mint tokens to owner
         token.mint(owner, tokenSupply);
 
+        // Grant SNAPSHOT_ROLE to RevenueDistribution so it can create snapshots for revenue distribution
+        // This allows RevenueDistribution to call snapshotNow() on this token
+        // Get RevenueDistribution address from registry
+        address revenueDistributionAddr = registry.getRevenueDistribution();
+        if (revenueDistributionAddr != address(0)) {
+            bytes32 snapshotRole = keccak256("SNAPSHOT_ROLE");
+            token.grantRole(snapshotRole, revenueDistributionAddr);
+        }
+
         emit PropertyRegistered(owner, address(asset), address(token), propertyDataHash, valuation);
+    }
+
+    /**
+     * Grant SNAPSHOT_ROLE to RevenueDistribution on an existing PropertyToken
+     * This is needed for properties created before this auto-granting was added
+     */
+    function grantSnapshotRoleToRevenue(address tokenAddress) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "PF: not admin");
+        
+        address revenueDistributionAddr = registry.getRevenueDistribution();
+        require(revenueDistributionAddr != address(0), "PF: revenue distribution not set in registry");
+        
+        PropertyToken token = PropertyToken(tokenAddress);
+        bytes32 snapshotRole = keccak256("SNAPSHOT_ROLE");
+        token.grantRole(snapshotRole, revenueDistributionAddr);
     }
 }

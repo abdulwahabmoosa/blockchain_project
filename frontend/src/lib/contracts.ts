@@ -42,6 +42,27 @@ export const getTokenBalance = async (
 };
 
 /**
+ * Get total token supply for a property
+ * 
+ * @param tokenAddress - The PropertyToken contract address
+ * @param provider - The ethers provider instance
+ * @returns Promise with the total supply as a BigInt
+ */
+export const getTotalSupply = async (
+  tokenAddress: string,
+  provider: BrowserProvider
+): Promise<bigint> => {
+  const tokenContract = new ethers.Contract(
+    tokenAddress,
+    PropertyTokenABI,
+    provider
+  );
+
+  const totalSupply = await tokenContract.totalSupply();
+  return totalSupply;
+};
+
+/**
  * Transfer tokens to another address
  * 
  * This function transfers PropertyToken (ERC20) tokens from the connected wallet
@@ -499,6 +520,100 @@ export const getClaimableDistributions = async (
   }
 
   return claimable;
+};
+
+/**
+ * WETH (Wrapped ETH) Utilities
+ * 
+ * WETH is required because the RevenueDistribution contract uses ERC20 tokens.
+ * Native ETH cannot be sent directly to the contract.
+ */
+
+// WETH contract address on Sepolia
+export const WETH_ADDRESS = "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9";
+
+// Minimal WETH ABI (only functions we need)
+const WETH_ABI = [
+  "function deposit() payable",
+  "function withdraw(uint256 wad)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function balanceOf(address account) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+] as const;
+
+/**
+ * Check WETH balance for an address
+ * 
+ * @param address - The wallet address to check
+ * @param provider - The ethers provider instance
+ * @returns Promise with WETH balance as BigInt
+ */
+export const checkWETHBalance = async (
+  address: string,
+  provider: BrowserProvider
+): Promise<bigint> => {
+  const wethContract = new ethers.Contract(WETH_ADDRESS, WETH_ABI, provider);
+  const balance = await wethContract.balanceOf(address);
+  return balance;
+};
+
+/**
+ * Wrap native ETH to WETH
+ * 
+ * This function sends ETH to the WETH contract's deposit function,
+ * which mints an equivalent amount of WETH to the sender.
+ * 
+ * @param amount - Amount of ETH to wrap (in wei, as BigInt)
+ * @param signer - The ethers signer instance (must be connected wallet)
+ * @returns Promise with the transaction response
+ */
+export const wrapETH = async (
+  amount: bigint,
+  signer: JsonRpcSigner
+): Promise<ethers.ContractTransactionResponse> => {
+  const wethContract = new ethers.Contract(WETH_ADDRESS, WETH_ABI, signer);
+  // Call deposit() with value (payable function)
+  const tx = await wethContract.deposit({ value: amount });
+  return tx;
+};
+
+/**
+ * Approve WETH spending for a contract
+ * 
+ * This allows a contract (like RevenueDistribution) to spend WETH
+ * from the user's wallet.
+ * 
+ * @param spender - The contract address that will spend WETH (RevenueDistribution address)
+ * @param amount - Amount to approve (in wei, use MaxUint256 for unlimited)
+ * @param signer - The ethers signer instance (must be connected wallet)
+ * @returns Promise with the transaction response
+ */
+export const approveWETH = async (
+  spender: string,
+  amount: bigint,
+  signer: JsonRpcSigner
+): Promise<ethers.ContractTransactionResponse> => {
+  const wethContract = new ethers.Contract(WETH_ADDRESS, WETH_ABI, signer);
+  const tx = await wethContract.approve(spender, amount);
+  return tx;
+};
+
+/**
+ * Check WETH allowance (how much a spender can spend)
+ * 
+ * @param owner - The owner's address
+ * @param spender - The spender's address (contract that can spend)
+ * @param provider - The ethers provider instance
+ * @returns Promise with allowance amount as BigInt
+ */
+export const checkWETHAllowance = async (
+  owner: string,
+  spender: string,
+  provider: BrowserProvider
+): Promise<bigint> => {
+  const wethContract = new ethers.Contract(WETH_ADDRESS, WETH_ABI, provider);
+  const allowance = await wethContract.allowance(owner, spender);
+  return allowance;
 };
 
 

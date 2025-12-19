@@ -303,7 +303,117 @@ func (s *ChainService) DistributeRevenue(tokenAddrStr, stablecoinAddrStr string,
 	stablecoinAddr := common.HexToAddress(stablecoinAddrStr)
 	amountBig := big.NewInt(amount)
 
+	// Get RevenueDistribution contract address
+	revenueDistributionAddr, err := s.Registry.GetRevenueDistribution(nil)
+	if err != nil {
+		log.Printf("⚠️ Failed to get RevenueDistribution address from registry: %v", err)
+		// Continue anyway - might work if role is already granted
+	} else {
+		// Check if RevenueDistribution has SNAPSHOT_ROLE on the PropertyToken
+		// If not, grant it automatically
+		err = s.ensureSnapshotRole(tokenAddr, revenueDistributionAddr, auth)
+		if err != nil {
+			log.Printf("⚠️ Failed to ensure SNAPSHOT_ROLE (will try distribution anyway): %v", err)
+			// Continue anyway - the error might be that role is already granted
+		}
+	}
+
 	return s.RevenueDistribution.DepositRevenue(auth, tokenAddr, stablecoinAddr, amountBig)
+}
+
+// ensureSnapshotRole ensures that RevenueDistribution has SNAPSHOT_ROLE on the PropertyToken
+func (s *ChainService) ensureSnapshotRole(tokenAddr, revenueDistributionAddr common.Address, auth *bind.TransactOpts) error {
+	// Create PropertyToken instance
+	token, err := property_token.NewPropertyToken(tokenAddr, s.Client)
+	if err != nil {
+		return fmt.Errorf("failed to create PropertyToken instance: %v", err)
+	}
+
+	// Get SNAPSHOT_ROLE bytes32
+	snapshotRole, err := token.SNAPSHOTROLE(nil)
+	if err != nil {
+		return fmt.Errorf("failed to get SNAPSHOT_ROLE: %v", err)
+	}
+
+	// Check if RevenueDistribution already has the role
+	hasRole, err := token.HasRole(nil, snapshotRole, revenueDistributionAddr)
+	if err != nil {
+		return fmt.Errorf("failed to check role: %v", err)
+	}
+
+	if hasRole {
+		log.Printf("✅ RevenueDistribution already has SNAPSHOT_ROLE on token %s", tokenAddr.Hex())
+		return nil
+	}
+
+	log.Printf("🔧 RevenueDistribution does not have SNAPSHOT_ROLE on token %s, attempting to grant...", tokenAddr.Hex())
+
+	// PropertyFactory is the admin of PropertyTokens it creates
+	// We need to use PropertyFactory's grantSnapshotRoleToRevenue function
+	// Since it's not in bindings, we'll use PropertyFactory's GrantRole on the PropertyToken
+	// But first, let's try calling PropertyFactory's grantSnapshotRoleToRevenue via raw transaction
+	
+	// Try using PropertyFactory to grant the role
+	// PropertyFactory.grantSnapshotRoleToRevenue(tokenAddress) calls token.grantRole internally
+	// Since PropertyFactory is admin, it can grant roles on tokens it created
+	
+	// For now, try to grant directly on the token
+	// If the backend wallet is admin of PropertyFactory, and PropertyFactory is admin of token,
+	// we might need to use PropertyFactory's function. But since bindings don't have it,
+	// we'll try direct grant first (might work if backend wallet has admin role on token)
+	
+	// Convert snapshotRole from [32]byte to [32]byte for grantRole
+	var roleBytes [32]byte
+	copy(roleBytes[:], snapshotRole[:])
+	
+	// Try to grant the role directly on the PropertyToken first
+	// This will work if the caller (backend wallet) is the admin of the PropertyToken
+	tx, err := token.GrantRole(auth, roleBytes, revenueDistributionAddr)
+	if err != nil {
+		// Direct grant failed - PropertyFactory is likely the admin
+		// Use PropertyFactory's grantSnapshotRoleToRevenue function via raw transaction
+		log.Printf("⚠️ Direct grant failed (PropertyFactory is admin). Using PropertyFactory.grantSnapshotRoleToRevenue...")
+		
+		if s.PropertyFactory == nil {
+			return fmt.Errorf("PropertyFactory not available to grant role")
+		}
+		
+		// Use PropertyFactory's raw Transact method to call grantSnapshotRoleToRevenue
+		// Function signature: grantSnapshotRoleToRevenue(address tokenAddress)
+		// PropertyFactoryRaw allows calling methods by name even if not in bindings
+		rawFactory := &property_factory.PropertyFactoryRaw{Contract: s.PropertyFactory}
+		tx, err = rawFactory.Transact(auth, "grantSnapshotRoleToRevenue", tokenAddr)
+		if err != nil {
+			log.Printf("❌ Failed to call PropertyFactory.grantSnapshotRoleToRevenue: %v", err)
+			return fmt.Errorf("failed to grant SNAPSHOT_ROLE via PropertyFactory: %v", err)
+		}
+		
+		log.Printf("✅ PropertyFactory.grantSnapshotRoleToRevenue transaction sent, waiting for confirmation...")
+		receipt, err := s.WaitForTx(tx.Hash())
+		if err != nil {
+			return fmt.Errorf("failed to wait for grant role transaction: %v", err)
+		}
+		
+		if receipt.Status == 0 {
+			return fmt.Errorf("grant role transaction failed")
+		}
+		
+		log.Printf("✅ SNAPSHOT_ROLE successfully granted to RevenueDistribution via PropertyFactory")
+		return nil
+	}
+	
+	log.Printf("✅ SNAPSHOT_ROLE grant transaction sent, waiting for confirmation...")
+	receipt, err := s.WaitForTx(tx.Hash())
+	if err != nil {
+		return fmt.Errorf("failed to wait for grant role transaction: %v", err)
+	}
+	
+	if receipt.Status == 0 {
+		return fmt.Errorf("grant role transaction failed")
+	}
+	
+	log.Printf("✅ SNAPSHOT_ROLE successfully granted to RevenueDistribution on token %s", tokenAddr.Hex())
+	return nil
 }
 
 // ApproveUser allows a specific wallet address to participate in the platform
@@ -446,4 +556,25 @@ func (s *ChainService) TransferTokens(tokenAddrStr, toAddrStr string, amount *bi
 	}
 
 	return token.Transfer(auth, toAddr, amount)
+}
+
+// GetTotalSupply gets the total token supply for a property token contract
+func (s *ChainService) GetTotalSupply(tokenAddrStr string) (*big.Int, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("blockchain client not available")
+	}
+
+	tokenAddr := common.HexToAddress(tokenAddrStr)
+
+	token, err := property_token.NewPropertyToken(tokenAddr, s.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to property token contract: %v", err)
+	}
+
+	totalSupply, err := token.TotalSupply(nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get total supply: %v", err)
+	}
+
+	return totalSupply, nil
 }

@@ -21,8 +21,10 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware" // CORS middleware
+	"github.com/go-chi/cors"
 	"github.com/go-chi/render"
 	"github.com/go-playground/validator/v10" // Ensure you ran: go get github.com/go-playground/validator/v10
+	"github.com/google/uuid"
 )
 
 // Initialize Validator
@@ -85,17 +87,27 @@ func (handler *RequestHandler) Start() {
 	r := chi.NewRouter()
 
 	// CORS middleware configuration
-	// r.Use(cors.Handler(cors.Options{
-	// 	AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000"}, // Allow frontend dev server and backend
-	// 	AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-	// 	AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
-	// 	ExposedHeaders:   []string{"Link"},
-	// 	AllowCredentials: true,
-	// 	MaxAge:           300, // Maximum value not ignored by any of major browsers
-	// }))
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"}, // Allow frontend dev server and backend
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
+		ExposedHeaders:   []string{"Link"},
+		AllowCredentials: true,
+		MaxAge:           300, // Maximum value not ignored by any of major browsers
+	}))
 
 	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer) // Recover from panics and return 500
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("❌ PANIC RECOVERED in middleware: %v, Path: %s, Method: %s", rec, r.URL.Path, r.Method)
+					http.Error(w, "Internal server error", http.StatusInternalServerError)
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	})
 	r.Use(render.SetContentType(render.ContentTypeJSON))
 
 	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
@@ -116,11 +128,28 @@ func (handler *RequestHandler) Start() {
 		r.Get("/properties/{id}", handler.GetProperty)
 		r.Get("/properties/{id}/metadata", handler.GetPropertyMetadata)
 		r.Get("/properties/{id}/token-balance/{wallet}", handler.GetPropertyTokenBalance)
+		r.Get("/properties/{id}/token-stats", handler.GetPropertyTokenStats)
 		r.Post("/properties/{id}/transfer", handler.TransferPropertyTokens)
+		r.Post("/properties/{id}/purchase", handler.CreateTokenPurchase)
+		r.Get("/properties/{id}/pending-purchases", handler.GetPendingTokenPurchases)
+		r.Post("/properties/{id}/purchases/{purchaseId}/approve", handler.ApproveTokenPurchase)
+		r.Post("/properties/{id}/purchases/{purchaseId}/update-tx", handler.UpdateTokenPurchaseTxHash)
+		
+		// User routes - use Route() to ensure proper sub-path matching
+		r.Route("/users/me", func(r chi.Router) {
+			r.Get("/purchases", handler.GetMyTokenPurchases)
+			r.Get("/pending-transfers", handler.GetMyPendingTransfers)
+			r.Post("/reset-password", handler.ResetPassword)
+			r.Get("/", handler.GetCurrentUser) // "/" matches /users/me exactly
+			r.Put("/", handler.UpdateUserInfo)
+			r.Delete("/", handler.DeleteUser)
+		})
 
-		r.Put("/users/me", handler.UpdateUserInfo)
-		r.Delete("/users/me", handler.DeleteUser)
-		r.Post("/users/me/reset-password", handler.ResetPassword)
+		// Property Upload Request Routes (authenticated users)
+		r.Post("/property-upload-requests", handler.CreatePropertyUploadRequest)
+		r.Get("/property-upload-requests", handler.GetPropertyUploadRequests)
+		r.Get("/property-upload-requests/user", handler.GetPropertyUploadRequests)
+		r.Get("/property-upload-requests/{id}", handler.GetPropertyUploadRequest)
 
 		// Admin Routes
 		r.Group(func(r chi.Router) {
@@ -131,6 +160,8 @@ func (handler *RequestHandler) Start() {
 			r.Post("/properties", handler.CreateProperty)
 			r.Post("/properties/approval", handler.UpdatePropertyApproval)
 			r.Post("/revenue/distribute", handler.DistributeRevenue)
+			r.Post("/property-upload-requests/{id}/approve", handler.ApprovePropertyUploadRequest)
+			r.Post("/property-upload-requests/{id}/reject", handler.RejectPropertyUploadRequest)
 		})
 	})
 
@@ -172,6 +203,22 @@ func (handler *RequestHandler) gracefulShutdown(srv *http.Server) {
 }
 
 // Login is in auth.go
+
+func (handler *RequestHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	user, err := handler.db.GetUserById(claims.UserID.String())
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	render.JSON(w, r, user)
+}
 
 func (handler *RequestHandler) UpdateUserInfo(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
@@ -552,6 +599,62 @@ func (handler *RequestHandler) GetPropertyTokenBalance(w http.ResponseWriter, r 
 	})
 }
 
+func (handler *RequestHandler) GetPropertyTokenStats(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	prop, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	if handler.chain == nil {
+		http.Error(w, "Blockchain service not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Get total supply from blockchain
+	totalSupply, err := handler.chain.GetTotalSupply(prop.OnchainTokenAddress)
+	if err != nil {
+		log.Printf("Failed to get total supply: %v", err)
+		http.Error(w, "Failed to get total supply: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert total supply from wei to token units
+	totalSupplyFloat := new(big.Float).SetInt(totalSupply)
+	divisor := new(big.Float).SetInt(big.NewInt(1000000000000000000)) // 10^18
+	totalSupplyFloat.Quo(totalSupplyFloat, divisor)
+	total, _ := totalSupplyFloat.Float64()
+
+	// Get total sold from database
+	totalSold, err := handler.db.GetTokenStatsByProperty(id)
+	if err != nil {
+		log.Printf("Failed to get token stats: %v", err)
+		// If database query fails, default to 0 sold
+		totalSold = 0
+	}
+
+	// Calculate available
+	available := total - totalSold
+	if available < 0 {
+		available = 0 // Ensure non-negative
+	}
+
+	// Calculate percentage sold
+	var percentageSold float64
+	if total > 0 {
+		percentageSold = (totalSold / total) * 100
+	}
+
+	render.JSON(w, r, map[string]interface{}{
+		"total":           total,
+		"sold":            totalSold,
+		"available":       available,
+		"percentage_sold": percentageSold,
+	})
+}
+
 func (handler *RequestHandler) TransferPropertyTokens(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
@@ -600,9 +703,400 @@ func (handler *RequestHandler) TransferPropertyTokens(w http.ResponseWriter, r *
 		return
 	}
 
+	txHash := tx.Hash().Hex()
+
+	// Record the purchase in database (non-blocking - if it fails, log but don't fail the request)
+	// Convert amountBig back to token units (divide by 10^18) for storage
+	amountFloatForDB := new(big.Float).SetInt(amountBig)
+	divisor := new(big.Float).SetInt(big.NewInt(1000000000000000000)) // 10^18
+	amountFloatForDB.Quo(amountFloatForDB, divisor)
+	amountStr := amountFloatForDB.Text('f', 18) // Format with 18 decimal places
+
+	propertyUID, _ := uuid.Parse(id)
+	purchase := models.TokenPurchase{
+		ID:          uuid.New(),
+		PropertyID:  propertyUID,
+		BuyerWallet: req.ToAddress,
+		Amount:      amountStr,
+		TokenTxHash: txHash,
+		CreatedAt:   time.Now(),
+	}
+
+	if err := handler.db.CreateTokenPurchase(purchase); err != nil {
+		// Log error but don't fail the request - tokens are already transferred
+		log.Printf("⚠️ Failed to record token purchase in database: %v (Transaction: %s)", err, txHash)
+	} else {
+		log.Printf("✅ Token purchase recorded: Property=%s, Buyer=%s, Amount=%s, TX=%s", id, req.ToAddress, amountStr, txHash)
+	}
+
 	render.JSON(w, r, map[string]string{
 		"status":  "pending",
-		"tx_hash": tx.Hash().Hex(),
+		"tx_hash": txHash,
 		"message": "Transfer transaction submitted",
 	})
+}
+
+// CreateTokenPurchase handles POST /properties/{id}/purchase
+// Records a token purchase after buyer sends payment (before owner approves transfer)
+func (handler *RequestHandler) CreateTokenPurchase(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	type PurchaseRequest struct {
+		BuyerWallet   string `json:"buyer_wallet" validate:"required,eth_addr"`
+		Amount        string `json:"amount" validate:"required"` // Token amount in token units
+		PaymentTxHash string `json:"payment_tx_hash" validate:"required"` // ETH payment transaction hash
+		PurchasePrice string `json:"purchase_price" validate:"required"` // ETH paid
+	}
+
+	var req PurchaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid Body", http.StatusBadRequest)
+		return
+	}
+
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Verify property exists
+	_, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	propertyUID, _ := uuid.Parse(id)
+	purchase := models.TokenPurchase{
+		ID:            uuid.New(),
+		PropertyID:    propertyUID,
+		BuyerWallet:   req.BuyerWallet,
+		Amount:        req.Amount,
+		PaymentTxHash: req.PaymentTxHash,
+		TokenTxHash:   "pending", // Will be updated when owner approves
+		PurchasePrice: req.PurchasePrice,
+		CreatedAt:     time.Now(),
+	}
+
+	if err := handler.db.CreateTokenPurchase(purchase); err != nil {
+		log.Printf("❌ Failed to create token purchase: %v", err)
+		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✅ Token purchase recorded: Property=%s, Buyer=%s, Amount=%s, PaymentTX=%s", id, req.BuyerWallet, req.Amount, req.PaymentTxHash)
+
+	render.JSON(w, r, map[string]interface{}{
+		"status":      "success",
+		"purchase_id": purchase.ID.String(),
+		"message":     "Purchase recorded. Waiting for owner approval.",
+	})
+}
+
+// GetPendingTokenPurchases handles GET /properties/{id}/pending-purchases
+// Returns all pending token purchases for a property (for owner to approve)
+func (handler *RequestHandler) GetPendingTokenPurchases(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// Get property to verify it exists
+	prop, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	// Get authenticated user
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user to check if they're the owner
+	user, err := handler.db.GetUserById(claims.UserID.String())
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify user is the property owner
+	if user.WalletAddress == "" || user.WalletAddress != prop.OwnerWallet {
+		http.Error(w, "Forbidden: Only the property owner can view pending purchases", http.StatusForbidden)
+		return
+	}
+
+	// Get pending purchases
+	purchases, err := handler.db.GetPendingTokenPurchasesByProperty(id)
+	if err != nil {
+		log.Printf("❌ Failed to get pending purchases: %v", err)
+		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	render.JSON(w, r, purchases)
+}
+
+// ApproveTokenPurchase handles POST /properties/{id}/purchases/{purchaseId}/approve
+// Owner approves purchase and transfers tokens, then updates the purchase record
+func (handler *RequestHandler) ApproveTokenPurchase(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	purchaseId := chi.URLParam(r, "purchaseId")
+
+	// Get property
+	prop, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	// Get authenticated user
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user to check if they're the owner
+	user, err := handler.db.GetUserById(claims.UserID.String())
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify user is the property owner
+	if user.WalletAddress == "" || user.WalletAddress != prop.OwnerWallet {
+		http.Error(w, "Forbidden: Only the property owner can approve purchases", http.StatusForbidden)
+		return
+	}
+
+	// Get the purchase record
+	purchases, err := handler.db.GetPendingTokenPurchasesByProperty(id)
+	if err != nil {
+		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var purchase *models.TokenPurchase
+	for i := range purchases {
+		if purchases[i].ID.String() == purchaseId {
+			purchase = &purchases[i]
+			break
+		}
+	}
+
+	if purchase == nil {
+		http.Error(w, "Purchase not found or already approved", http.StatusNotFound)
+		return
+	}
+
+	if handler.chain == nil {
+		http.Error(w, "Blockchain service not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Parse amount (convert from token units to wei)
+	amountFloat, _, err := big.ParseFloat(purchase.Amount, 10, 256, big.ToNearestEven)
+	if err != nil {
+		http.Error(w, "Invalid amount format", http.StatusBadRequest)
+		return
+	}
+
+	weiMultiplier := big.NewFloat(1000000000000000000) // 10^18
+	amountFloat.Mul(amountFloat, weiMultiplier)
+	amountBig, _ := amountFloat.Int(nil)
+
+	// Transfer tokens from owner to buyer
+	// Note: This requires the owner's wallet to have tokens and be connected
+	// The frontend will handle the actual transfer using the owner's signer
+	// This endpoint just updates the database after the frontend confirms the transfer
+
+	// For now, we'll return the purchase details and let the frontend handle the transfer
+	// Then the frontend will call back to update the token_tx_hash
+	render.JSON(w, r, map[string]interface{}{
+		"status":      "ready",
+		"purchase":    purchase,
+		"message":     "Purchase ready for approval. Frontend should transfer tokens and then update the record.",
+		"token_address": prop.OnchainTokenAddress,
+		"buyer_address": purchase.BuyerWallet,
+		"amount_wei":    amountBig.String(),
+	})
+}
+
+// UpdateTokenPurchaseTxHash handles POST /properties/{id}/purchases/{purchaseId}/update-tx
+// Updates the token transfer transaction hash after owner approves and transfers tokens
+func (handler *RequestHandler) UpdateTokenPurchaseTxHash(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	purchaseId := chi.URLParam(r, "purchaseId")
+
+	type UpdateRequest struct {
+		TokenTxHash string `json:"token_tx_hash" validate:"required"`
+	}
+
+	var req UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid Body", http.StatusBadRequest)
+		return
+	}
+
+	if err := validate.Struct(req); err != nil {
+		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Get property
+	prop, err := handler.db.GetPropertyByID(id)
+	if err != nil {
+		http.Error(w, "Property not found", http.StatusNotFound)
+		return
+	}
+
+	// Get authenticated user
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Get user to check if they're the owner
+	user, err := handler.db.GetUserById(claims.UserID.String())
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify user is the property owner
+	if user.WalletAddress == "" || user.WalletAddress != prop.OwnerWallet {
+		http.Error(w, "Forbidden: Only the property owner can update purchases", http.StatusForbidden)
+		return
+	}
+
+	// Update the purchase record
+	if err := handler.db.UpdateTokenPurchaseTxHash(purchaseId, req.TokenTxHash); err != nil {
+		log.Printf("❌ Failed to update token purchase: %v", err)
+		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✅ Token purchase updated: PurchaseID=%s, TokenTX=%s", purchaseId, req.TokenTxHash)
+
+	render.JSON(w, r, map[string]interface{}{
+		"status":  "success",
+		"message": "Purchase record updated successfully",
+	})
+}
+
+// GetMyTokenPurchases handles GET /users/me/purchases
+// Returns all token purchases made by the authenticated user (as buyer)
+func (handler *RequestHandler) GetMyTokenPurchases(w http.ResponseWriter, r *http.Request) {
+	log.Printf("🔵 GetMyTokenPurchases: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
+	
+	// Get authenticated user
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		log.Printf("❌ GetMyTokenPurchases: Unauthorized - no claims in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	
+	log.Printf("🔵 GetMyTokenPurchases: User ID: %s", claims.UserID.String())
+
+	// Get user to get wallet address
+	user, err := handler.db.GetUserById(claims.UserID.String())
+	if err != nil {
+		log.Printf("❌ GetMyTokenPurchases: User not found: %v", err)
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	if user.WalletAddress == "" {
+		log.Printf("❌ GetMyTokenPurchases: User wallet address not found")
+		http.Error(w, "User wallet address not found", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("🔵 GetMyTokenPurchases: Fetching purchases for wallet: %s", user.WalletAddress)
+	
+	// Get all purchases by this buyer
+	purchases, err := handler.db.GetTokenPurchasesByBuyer(user.WalletAddress)
+	if err != nil {
+		log.Printf("❌ Failed to get token purchases: %v", err)
+		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Always return an array, even if empty
+	if purchases == nil {
+		purchases = []models.TokenPurchase{}
+	}
+
+	log.Printf("🔵 GetMyTokenPurchases: Returning %d purchases", len(purchases))
+	render.JSON(w, r, purchases)
+}
+
+// GetMyPendingTransfers handles GET /users/me/pending-transfers
+// Returns all pending token transfers for properties owned by the authenticated user
+func (handler *RequestHandler) GetMyPendingTransfers(w http.ResponseWriter, r *http.Request) {
+	log.Printf("🔵 GetMyPendingTransfers: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
+	
+	// Get authenticated user
+	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
+	if !ok {
+		log.Printf("❌ GetMyPendingTransfers: Unauthorized - no claims in context")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	
+	log.Printf("🔵 GetMyPendingTransfers: User ID: %s", claims.UserID.String())
+
+	// Get user to get wallet address
+	user, err := handler.db.GetUserById(claims.UserID.String())
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	if user.WalletAddress == "" {
+		http.Error(w, "User wallet address not found", http.StatusBadRequest)
+		return
+	}
+
+	// Get all properties owned by this user
+	allProperties, err := handler.db.GetAllProperties()
+	if err != nil {
+		log.Printf("❌ Failed to get properties: %v", err)
+		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Filter properties owned by user
+	userWalletLower := strings.ToLower(user.WalletAddress)
+	var ownedProperties []models.Property
+	for _, prop := range allProperties {
+		if prop.OwnerWallet != "" && strings.ToLower(prop.OwnerWallet) == userWalletLower {
+			ownedProperties = append(ownedProperties, prop)
+		}
+	}
+
+	log.Printf("🔵 GetMyPendingTransfers: Found %d owned properties", len(ownedProperties))
+	
+	// Get pending purchases for all owned properties
+	var allPendingTransfers []models.TokenPurchase
+	for _, prop := range ownedProperties {
+		pending, err := handler.db.GetPendingTokenPurchasesByProperty(prop.ID.String())
+		if err != nil {
+			log.Printf("⚠️ Failed to get pending purchases for property %s: %v", prop.ID, err)
+			continue
+		}
+		log.Printf("🔵 GetMyPendingTransfers: Property %s has %d pending purchases", prop.ID, len(pending))
+		allPendingTransfers = append(allPendingTransfers, pending...)
+	}
+
+	log.Printf("🔵 GetMyPendingTransfers: Returning %d total pending transfers", len(allPendingTransfers))
+	
+	// Always return an array, even if empty
+	if allPendingTransfers == nil {
+		allPendingTransfers = []models.TokenPurchase{}
+	}
+	
+	render.JSON(w, r, allPendingTransfers)
 }

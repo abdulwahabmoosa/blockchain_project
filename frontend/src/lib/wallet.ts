@@ -32,6 +32,7 @@ export interface WalletState {
   provider: ethers.BrowserProvider | null;
   signer: ethers.JsonRpcSigner | null;
   chainId: number | null;
+  isManuallyConnected: boolean;
 }
 
 /**
@@ -39,6 +40,97 @@ export interface WalletState {
  */
 export const isMetaMaskInstalled = (): boolean => {
   return typeof window !== "undefined" && typeof window.ethereum !== "undefined";
+};
+
+/**
+ * Connect to a specific wallet address in MetaMask
+ * 
+ * This function:
+ * 1. Checks if MetaMask is installed
+ * 2. Gets all accounts from MetaMask
+ * 3. Checks if the target address exists in MetaMask accounts
+ * 4. If found and currently selected, connects to that account
+ * 5. If found but not selected, throws error asking user to switch
+ * 6. If not found, throws error asking user to add/import the account
+ * 
+ * @param targetAddress The wallet address to connect to (from database)
+ * @returns Promise with wallet connection details
+ */
+export const connectToSpecificWallet = async (targetAddress: string): Promise<{
+  address: string;
+  provider: ethers.BrowserProvider;
+  signer: ethers.JsonRpcSigner;
+  chainId: number;
+}> => {
+  // Check if MetaMask is installed
+  if (!isMetaMaskInstalled()) {
+    throw new Error("MetaMask is not installed. Please install MetaMask to continue.");
+  }
+
+  // Normalize addresses for comparison
+  const normalizedTarget = targetAddress.toLowerCase();
+
+  // Create a provider from window.ethereum
+  const provider = new ethers.BrowserProvider(window.ethereum!);
+
+  // Request account access to get all accounts
+  console.log('🔓 Requesting account access...');
+  await provider.send("eth_requestAccounts", []);
+
+  // Get all accounts from MetaMask
+  console.log('👤 Getting all MetaMask accounts...');
+  const accounts = await provider.listAccounts();
+  console.log(`📋 Found ${accounts.length} account(s) in MetaMask`);
+
+  // Check if target address exists in MetaMask accounts
+  const accountAddresses = accounts.map(acc => acc.address.toLowerCase());
+  const targetAccountExists = accountAddresses.includes(normalizedTarget);
+
+  if (!targetAccountExists) {
+    // Target account not found in MetaMask
+    const errorMessage = `The wallet address ${targetAddress} is not found in your MetaMask accounts. Please add or import this account in MetaMask first, then refresh the page.`;
+    console.error(`❌ ${errorMessage}`);
+    throw new Error(errorMessage);
+  }
+
+  // Target account exists - check if it's currently selected (first account)
+  const currentlySelectedAddress = accounts[0]?.address.toLowerCase();
+  
+  if (currentlySelectedAddress !== normalizedTarget) {
+    // The account exists but is not currently selected
+    // MetaMask doesn't allow programmatic account switching, so we need to ask the user
+    const errorMessage = `The wallet ${targetAddress} exists in MetaMask but is not currently selected. Please switch to this account in MetaMask (the account icon in the top right), then refresh the page.`;
+    console.warn(`⚠️ ${errorMessage}`);
+    throw new Error(errorMessage);
+  }
+
+  // Target account is selected - get signer
+  console.log(`✅ Target wallet is selected in MetaMask`);
+  console.log(`🔗 Connecting to wallet: ${targetAddress}`);
+  
+  const signer = await provider.getSigner();
+  const connectedAddress = await signer.getAddress();
+
+  // Verify the connected address matches (double check)
+  if (connectedAddress.toLowerCase() !== normalizedTarget) {
+    const errorMessage = `Unexpected error: Connected address (${connectedAddress}) doesn't match target (${targetAddress}). Please try again.`;
+    console.error(`❌ ${errorMessage}`);
+    throw new Error(errorMessage);
+  }
+
+  // Get the chain ID to verify we're on the correct network
+  console.log('🌐 Getting network...');
+  const network = await provider.getNetwork();
+  const chainId = Number(network.chainId);
+
+  console.log(`✅ Successfully connected to wallet: ${connectedAddress}`);
+
+  return {
+    address: connectedAddress,
+    provider,
+    signer,
+    chainId,
+  };
 };
 
 /**

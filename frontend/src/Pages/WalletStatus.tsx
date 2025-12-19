@@ -7,8 +7,6 @@ import {
   ArrowDownLeft,
   CheckCircle,
   Coins,
-  Send,
-  X,
 } from "lucide-react";
 import { Button } from "../Components/atoms/Button";
 import { useWallet } from "../hooks/useWallet";
@@ -53,21 +51,7 @@ function WalletStatus() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [tokenBalances, setTokenBalances] = useState<Record<string, string>>({});
   const [loadingBalances, setLoadingBalances] = useState(false);
-  const [transferModal, setTransferModal] = useState<{
-    isOpen: boolean;
-    property: Property | null;
-    toAddress: string;
-    amount: string;
-    transferring: boolean;
-  }>({
-    isOpen: false,
-    property: null,
-    toAddress: "",
-    amount: "",
-    transferring: false,
-  });
-  const { isConnected, address, provider, connectRegisteredWallet } = useWallet();
-  const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
+  const { isConnected, address, provider } = useWallet();
 
   useEffect(() => {
     const userStr = localStorage.getItem("user");
@@ -75,33 +59,6 @@ function WalletStatus() {
       setUser(JSON.parse(userStr));
     }
   }, []);
-
-  // Auto-connect wallet on page load
-  useEffect(() => {
-    const autoConnectWallet = async () => {
-      if (user && user.WalletAddress && !autoConnectAttempted) {
-        setAutoConnectAttempted(true);
-
-        // Check if we're already connected to the correct wallet
-        const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
-
-        if (!isCorrectWallet) {
-          console.log('🔗 Auto-connecting wallet for user:', user.Email);
-          try {
-            await connectRegisteredWallet(user.WalletAddress);
-            console.log('✅ Wallet auto-connection successful');
-          } catch (err) {
-            console.error('❌ Wallet auto-connect failed:', err);
-            // Don't retry, just log the error
-          }
-        } else {
-          console.log('✅ Already connected to correct wallet');
-        }
-      }
-    };
-
-    autoConnectWallet();
-  }, [user, autoConnectAttempted, address, connectRegisteredWallet]);
 
 // Fetch wallet balance - always use user's registered wallet address
 useEffect(() => {
@@ -177,58 +134,6 @@ useEffect(() => {
 
   const formatAddress = (address: string) => {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
-  };
-
-  const openTransferModal = (property: Property) => {
-    setTransferModal({
-      isOpen: true,
-      property,
-      toAddress: "",
-      amount: "",
-      transferring: false,
-    });
-  };
-
-  const closeTransferModal = () => {
-    setTransferModal({
-      isOpen: false,
-      property: null,
-      toAddress: "",
-      amount: "",
-      transferring: false,
-    });
-  };
-
-  const handleTransfer = async () => {
-    if (!transferModal.property) return;
-
-    setTransferModal(prev => ({ ...prev, transferring: true }));
-
-    try {
-      const response = await api.transferTokens(
-        transferModal.property!.ID,
-        transferModal.toAddress,
-        transferModal.amount
-      );
-
-      alert(`✅ Transfer successful!\nTransaction Hash: ${response.tx_hash}`);
-
-      // Refresh balances
-      const balanceData = await api.getTokenBalance(
-        transferModal.property!.ID,
-        user!.WalletAddress
-      );
-      setTokenBalances(prev => ({
-        ...prev,
-        [transferModal.property!.ID]: balanceData.balance
-      }));
-
-      closeTransferModal();
-    } catch (err: any) {
-      console.error("Transfer failed:", err);
-      alert(`❌ Transfer failed: ${err.message}`);
-      setTransferModal(prev => ({ ...prev, transferring: false }));
-    }
   };
 
   // Helper functions to get/set persisted approvals (same as AdminManageUsers)
@@ -572,26 +477,13 @@ useEffect(() => {
                     Token: {property.OnchainTokenAddress.substring(0, 10)}...
                   </p>
                 </div>
-                <div className="text-right flex items-center gap-3">
-                  <div>
-                    <p className="text-lg font-semibold">
-                      {loadingBalances ? "..." : (tokenBalances[property.ID] || "0")} tokens
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {property.Status}
-                    </p>
-                  </div>
-                  {(tokenBalances[property.ID] || "0") !== "0" && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openTransferModal(property)}
-                      className="border-[#262626] text-white hover:bg-[#1a1a1a]"
-                    >
-                      <Send size={14} className="mr-1" />
-                      Transfer
-                    </Button>
-                  )}
+                <div className="text-right">
+                  <p className="text-lg font-semibold">
+                    {loadingBalances ? "..." : (tokenBalances[property.ID] || "0")} tokens
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {property.Status}
+                  </p>
                 </div>
               </div>
             ))}
@@ -674,78 +566,6 @@ useEffect(() => {
       </div>
 
       {/* Transfer Modal */}
-      {transferModal.isOpen && transferModal.property && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-          <div className="bg-[#111111] border border-[#1f1f1f] rounded-2xl p-6 w-full max-w-md">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Transfer Tokens</h3>
-              <button
-                onClick={closeTransferModal}
-                className="text-gray-400 hover:text-white"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="p-3 rounded-lg bg-[#0f0f0f] border border-[#1f1f1f]">
-                <p className="text-sm text-gray-400">Property</p>
-                <p className="font-semibold">{transferModal.property.Name || `Property #${transferModal.property.ID.substring(0, 8)}`}</p>
-                <p className="text-xs text-gray-500">
-                  Balance: {tokenBalances[transferModal.property.ID] || "0"} tokens
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Recipient Address</label>
-                <input
-                  type="text"
-                  placeholder="0x..."
-                  value={transferModal.toAddress}
-                  onChange={(e) => setTransferModal(prev => ({
-                    ...prev,
-                    toAddress: e.target.value
-                  }))}
-                  className="w-full p-3 rounded-lg border border-[#262626] bg-[#0f0f0f] text-white placeholder-gray-500 focus:border-[#6d41ff] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium mb-2">Amount</label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  step="1"
-                  value={transferModal.amount}
-                  onChange={(e) => setTransferModal(prev => ({
-                    ...prev,
-                    amount: e.target.value
-                  }))}
-                  className="w-full p-3 rounded-lg border border-[#262626] bg-[#0f0f0f] text-white placeholder-gray-500 focus:border-[#6d41ff] outline-none"
-                />
-              </div>
-
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={closeTransferModal}
-                  className="flex-1 border-[#262626] text-white hover:bg-[#1a1a1a]"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  onClick={handleTransfer}
-                  disabled={transferModal.transferring || !transferModal.toAddress || !transferModal.amount}
-                  className="flex-1 bg-[#6d41ff] hover:bg-[#5b2fff] text-white disabled:opacity-50"
-                >
-                  {transferModal.transferring ? "Transferring..." : "Transfer"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

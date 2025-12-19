@@ -126,3 +126,62 @@ type Transaction struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
+
+// PropertyUploadRequest represents a property upload request submitted by a user
+// that requires admin approval before being created on the blockchain
+type PropertyUploadRequest struct {
+	ID              uuid.UUID      `json:"id" gorm:"type:uuid;primaryKey"`
+	UserID          uuid.UUID      `json:"user_id" gorm:"type:uuid;not null;index"` // FK to users table
+	WalletAddress   string         `json:"wallet_address" gorm:"type:varchar(100);not null;index"` // Denormalized for easier queries
+	Name            string         `json:"name" gorm:"type:varchar(255);not null"` // Property name
+	Symbol          string         `json:"symbol" gorm:"type:varchar(10);not null"` // Token symbol
+	Valuation       float64        `json:"valuation" gorm:"type:decimal;not null"` // Property valuation
+	TokenSupply     int64          `json:"token_supply" gorm:"type:bigint;not null"` // Token supply
+	MetadataHash    string         `json:"metadata_hash" gorm:"type:varchar(255);not null"` // IPFS hash of uploaded files
+	Status          ApprovalStatus `json:"status" gorm:"type:approval_status;default:'pending'"` // Request status
+	RejectionReason string         `json:"rejection_reason" gorm:"type:text"` // Optional rejection reason
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+	// Relationships
+	Documents []PropertyUploadRequestDocument `gorm:"foreignKey:PropertyUploadRequestID;constraint:OnDelete:CASCADE"` // Documents uploaded with this request
+}
+
+// TableName specifies the table name for PropertyUploadRequest
+func (PropertyUploadRequest) TableName() string {
+	return "property_upload_requests"
+}
+
+// PropertyUploadRequestDocument represents a document uploaded with a property upload request
+type PropertyUploadRequestDocument struct {
+	ID                      uuid.UUID `json:"id" gorm:"type:uuid;primaryKey"`
+	PropertyUploadRequestID uuid.UUID `json:"property_upload_request_id" gorm:"type:uuid;not null;index"` // FK to property_upload_requests
+	FileUrl                 string    `json:"file_url" gorm:"type:text;not null"`                          // IPFS URL
+	FileHash                string    `json:"file_hash" gorm:"type:varchar(255);not null"`                 // IPFS hash
+	Name                    string    `json:"name" gorm:"type:varchar(255);not null"`                      // File name
+	Type                    string    `json:"type" gorm:"type:varchar(100);not null"`                      // Document type
+	UploadedAt              time.Time `json:"uploaded_at" gorm:"column:uploaded_at"`
+}
+
+// TableName specifies the table name for PropertyUploadRequestDocument
+func (PropertyUploadRequestDocument) TableName() string {
+	return "property_upload_request_documents"
+}
+
+// TokenPurchase represents a token purchase record for tracking token sales
+type TokenPurchase struct {
+	ID            uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	PropertyID    uuid.UUID `gorm:"type:uuid;not null;index" json:"property_id"` // FK(properties.id)
+	BuyerWallet   string    `gorm:"type:varchar(100);not null;index" json:"buyer_wallet"` // Buyer's wallet address
+	Amount        string    `gorm:"type:decimal;not null" json:"amount"` // Token amount purchased (using string for precision)
+	PaymentTxHash string    `gorm:"type:varchar(100)" json:"payment_tx_hash"` // ETH payment transaction hash (optional)
+	TokenTxHash   string    `gorm:"type:varchar(100);not null;default:'pending'" json:"token_tx_hash"` // Token transfer transaction hash (use "pending" until owner approves)
+	PurchasePrice string    `gorm:"type:decimal" json:"purchase_price"` // ETH paid (optional, using string for precision)
+	CreatedAt     time.Time `json:"created_at"`
+	// Relationships
+	Property Property `gorm:"foreignKey:PropertyID"`
+}
+
+// TableName specifies the table name for TokenPurchase
+func (TokenPurchase) TableName() string {
+	return "token_purchases"
+}

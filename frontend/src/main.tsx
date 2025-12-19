@@ -27,6 +27,8 @@ import AdminDashboardHome from "./Pages/AdminDashboardHome";
 import AdminManageUsers from "./Pages/AdminManageUsers";
 import AdminManageProperties from "./Pages/AdminManageProperties";
 import AdminCreateProperty from "./Pages/AdminCreateProperty";
+import PropertyUploadRequestManagement from "./Pages/PropertyUploadRequestManagement";
+import Messages from "./Pages/Messages";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -55,6 +57,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="investments" element={<MyInvestments />} />
             <Route path="wallet" element={<WalletStatus />} />
             <Route path="account" element={<MyAccount />} />
+            <Route path="messages" element={<Messages />} />
           </Route>
 
           <Route
@@ -69,6 +72,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="create-property" element={<AdminCreateProperty />} />
             <Route path="users" element={<AdminManageUsers />} />
             <Route path="properties" element={<AdminManageProperties />} />
+            <Route path="property-requests" element={<PropertyUploadRequestManagement />} />
             <Route path="wallet" element={<WalletStatus />} />
           </Route>
 
