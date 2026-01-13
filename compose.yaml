@@ -1,0 +1,71 @@
+x-blockchain-env: &blockchain-env
+    SEPOLIA_RPC: ${SEPOLIA_RPC}
+    PRIVATE_KEY: ${PRIVATE_KEY}
+    REGISTRY: ${REGISTRY}
+    PRIVATE_KEY_2: ${PRIVATE_KEY_2}
+    REVENUE: ${REVENUE}
+    PINATA_API_KEY: ${PINATA_API_KEY}
+    PINATA_API_SECRET: ${PINATA_API_SECRET}
+    PINATA_JWT_TOKEN: ${PINATA_JWT_TOKEN}
+
+services:
+    # blockchain:
+    #     image: docker.io/library/node:25-alpine3.22
+    #     working_dir: /app
+    #     volumes:
+    #         - ./smart_contract:/app
+    #     command: /bin/sh -c "if [ ! -d node_modules ]; then npm install; fi && npx hardhat node"
+    #     ports:
+    #         - "8545:8545"
+    #     environment:
+    #         <<: *blockchain-env
+    #     healthcheck:
+    #         test: ["CMD", "nc", "-z", "localhost", "8545"]
+    #         interval: 5s
+    #         timeout: 5s
+    #         retries: 5
+
+    db:
+        image: docker.io/library/postgres:18.1-alpine3.23
+        container_name: blockchain-db
+        ports:
+            - "5433:5432"
+        environment:
+            POSTGRES_USER: blockchain-db
+            POSTGRES_PASSWORD: TP075164
+            POSTGRES_DB: db
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U blockchain-db -d db"]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    backend:
+        image: docker.io/library/golang:1.25.5-trixie
+        working_dir: /app
+        volumes:
+            - ./backend:/app
+        environment:
+            <<: *blockchain-env
+            DB_URL: postgres://blockchain-db:TP075164@db:5432/db?sslmode=disable
+        depends_on:
+            # - blockchain
+            - db
+        command: /bin/sh -c "go mod download && go run main.go"
+        ports:
+            - "3000:3000"
+
+    frontend:
+        image: node:20
+        working_dir: /app
+        dns:
+            - 8.8.8.8
+            - 1.1.1.1
+        volumes:
+            - ./frontend:/app
+            - /app/node_modules
+        ports:
+            - "5173:5173"
+        command: /bin/sh -c "npm install -D vite && npm run dev"
+        depends_on:
+            - db
