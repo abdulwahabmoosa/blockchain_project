@@ -41,3 +41,4 @@ try {
   console.error('❌ Error updating addresses file:', error.message);
   process.exit(1);
 }
+

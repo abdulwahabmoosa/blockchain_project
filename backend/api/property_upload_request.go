@@ -393,3 +393,4 @@ func (handler *RequestHandler) processPropertyUploadRequestFiles(files []*multip
 
 	return dbDocs, mainIpfsHash, nil
 }
+

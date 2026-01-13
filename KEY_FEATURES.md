@@ -144,3 +144,4 @@
 - **Storage**: IPFS (Pinata)
 - **Containerization**: Docker & Docker Compose
 - **Frontend**: React + TypeScript, Vite, Tailwind CSS, `ethers` v6, `react-router-dom`, `lucide-react`, `tailwind-merge`
+

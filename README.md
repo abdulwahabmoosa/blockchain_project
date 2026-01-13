@@ -3,52 +3,6 @@
 A robust backend for tokenizing Real World Assets (Real Estate) on the Ethereum blockchain. This system bridges the gap between Web2 (PostgreSQL, IPFS) and Web3 (Smart Contracts), handling user identity, document verification, and asset minting.
 ---
 
-## ⚡ Quick Start (Docker)
-
-The easiest way to run the entire stack (Blockchain Node, Database, API) is via Docker Compose.
-
-### 1. Configuration
-
-Create a `.env` file in the root directory:
-
-```ini
-# Server Config
-PORT=3000
-JWT_SECRET="super-secret-key-change-me"
-
-# Database (Service name is 'db')
-DB_URL="host=db user=blockchain-db password=password dbname=db port=5432 sslmode=disable"
-
-# Blockchain Configuration
-# Use "http://blockchain:8545" if running the local hardhat node via Docker
-SEPOLIA_RPC="http://blockchain:8545"
-PRIVATE_KEY="0x..." # Admin Wallet Private Key (Deployer)
-REGISTRY="0x..."    # Registry Contract Address
-
-# IPFS (Pinata)
-# IMPORTANT: PINATA_JWT_TOKEN must be set in your environment for the backend service
-# to upload files to IPFS. Ensure this variable is available to the backend container.
-# If using Docker Compose, add it to your .env file and ensure compose.yaml references it.
-PINATA_JWT_TOKEN="your-pinata-jwt-token"
-
-# Admin Seeding (Created on first run)
-ADMIN_EMAIL="admin@admin.com"
-ADMIN_PASSWORD="password"
-
-```
-
-### 2. Run Services
-
-```bash
-docker compose up -d
-
-```
-
-- **API**: `http://localhost:3000`
-- **Blockchain Node**: `http://localhost:8545`
-- **Postgres**: Port `5433` (mapped locally)
-
----
 
 ## 📡 API Documentation
 
