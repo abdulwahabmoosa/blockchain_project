@@ -4,7 +4,7 @@ import { useParams, Link as RouterLink, useNavigate } from "react-router-dom";
 import { Navbar } from "../Components/organisms/Navbar";
 import { Button } from "../Components/atoms/Button";
 import { api } from "../lib/api";
-import type { Property, PropertyMetadata } from "../types";
+import type { Property } from "../types";
 import { useWallet } from "../hooks/useWallet";
 import {
   getTokenBalance,
@@ -35,8 +35,6 @@ export default function PropertyDetailsPage() {
   const [transferAmount, setTransferAmount] = useState(""); // Transfer amount
   const [transferring, setTransferring] = useState(false); // Transfer loading
   const [autoConnectAttempted, setAutoConnectAttempted] = useState(false);
-  const [metadata, setMetadata] = useState<PropertyMetadata | null>(null);
-  const [metadataLoading, setMetadataLoading] = useState(false);
   const { isConnected, address, provider, signer, connectRegisteredWallet, isManuallyConnected } = useWallet();
   const navigate = useNavigate();
   const [user, setUser] = useState<any>(null);
@@ -264,25 +262,6 @@ export default function PropertyDetailsPage() {
     checkApproval();
   }, [isConnected, address, provider]);
 
-  // Fetch property metadata
-  useEffect(() => {
-    const fetchMetadata = async () => {
-      if (!property?.ID) return;
-
-      setMetadataLoading(true);
-      try {
-        const metadataData = await api.getPropertyMetadata(property.ID);
-        setMetadata(metadataData);
-      } catch (err) {
-        console.log("No metadata available or failed to fetch:", err);
-        setMetadata(null);
-      } finally {
-        setMetadataLoading(false);
-      }
-    };
-
-    fetchMetadata();
-  }, [property?.ID]);
 
   const handleTransfer = async () => {
     if (!signer || !property || !transferTo || !transferAmount) {
@@ -598,9 +577,9 @@ export default function PropertyDetailsPage() {
   }
 
   // Use property name if available, otherwise use ID
-  const title = property.Name || metadata?.name || `Property #${property.ID.substring(0, 8)}`;
-  const description = metadata?.description || "No description available for this property.";
-  const location = metadata?.location || "Location not specified";
+  const title = property.Name || `Property #${property.ID.substring(0, 8)}`;
+  const description = "No description available for this property.";
+  const location = "Location not specified";
   const features = ["Tokenized Asset", "Blockchain Verified", "Instant Settlement"];
   const details = {
     "Property Type": "Tokenized Real Estate",
@@ -719,11 +698,11 @@ export default function PropertyDetailsPage() {
           </div>
 
           {/* Image Gallery */}
-          {metadata?.images && metadata.images.length > 0 ? (
+          {property.MetadataHash ? (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 h-[400px] md:h-[500px]">
               <div className="md:col-span-2 md:row-span-2 rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
                 <img
-                  src={metadata.images[0]}
+                  src={`https://gateway.pinata.cloud/ipfs/${property.MetadataHash}`}
                   alt="Property main"
                   className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   onError={(e) => {
@@ -739,25 +718,16 @@ export default function PropertyDetailsPage() {
                   <span className="absolute bg-black/50 px-4 py-2 rounded-lg backdrop-blur-sm">Image not available</span>
                 </div>
               </div>
-              {metadata.images.slice(1, 4).map((image, index) => (
-                <div
-                  key={index}
-                  className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group"
-                >
-                  <img
-                    src={image}
-                    alt={`Property ${index + 2}`}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none';
-                      e.currentTarget.nextElementSibling!.classList.remove('hidden');
-                    }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none hidden">
-                    <GradientThumb />
-                  </div>
-                </div>
-              ))}
+              {/* Show gradient placeholders for additional gallery spots */}
+              <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+              </div>
+              <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+              </div>
+              <div className="rounded-3xl overflow-hidden border border-[#1f1f1f] relative group">
+                <GradientThumb />
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4 h-[400px] md:h-[500px]">
@@ -765,7 +735,7 @@ export default function PropertyDetailsPage() {
                 <GradientThumb />
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <span className="bg-black/50 px-4 py-2 rounded-lg backdrop-blur-sm">
-                    {metadataLoading ? "Loading images..." : "No images available"}
+                    No image available
                   </span>
                 </div>
               </div>

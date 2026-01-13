@@ -20,8 +20,22 @@ const PropertyCard = ({
     onClick={onClick}
     className="rounded-2xl border border-[#1f1f1f] bg-[#111111] p-4 space-y-3 cursor-pointer hover:border-[#703BF7] transition-colors"
   >
-    <div className="h-40 rounded-xl overflow-hidden">
-      <GradientThumb />
+    <div className="h-40 rounded-xl overflow-hidden bg-gradient-to-br from-[#1f1f1f] via-[#2a2a2a] to-[#111111]">
+      {property.MetadataHash ? (
+        <img
+          src={`https://gateway.pinata.cloud/ipfs/${property.MetadataHash}`}
+          alt="Property"
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            e.currentTarget.style.display = 'none';
+            e.currentTarget.parentElement!.innerHTML = '<div class="w-full h-full flex items-center justify-center"><span class="text-gray-500 text-xs">No image</span></div>';
+          }}
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <span className="text-gray-500 text-xs">No image</span>
+        </div>
+      )}
     </div>
     <div className="space-y-1">
       <h3 className="text-lg font-semibold truncate">

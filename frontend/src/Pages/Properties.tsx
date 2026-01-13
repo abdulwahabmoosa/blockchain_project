@@ -102,9 +102,23 @@ function PropertiesPage() {
                   key={property.ID}
                   className="bg-[#1A1A1A] border border-[#262626] rounded-lg overflow-hidden hover:border-[#6d41ff]/50 transition-colors"
                 >
-                  {/* Property Image Placeholder */}
-                  <div className="aspect-video bg-gradient-to-br from-[#1f1f1f] via-[#2a2a2a] to-[#111111] flex items-center justify-center">
-                    <span className="text-gray-500">Property Image</span>
+                  {/* Property Image */}
+                  <div className="aspect-video bg-gradient-to-br from-[#1f1f1f] via-[#2a2a2a] to-[#111111] overflow-hidden">
+                    {property.MetadataHash ? (
+                      <img
+                        src={`https://gateway.pinata.cloud/ipfs/${property.MetadataHash}`}
+                        alt="Property"
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.style.display = 'none';
+                          e.currentTarget.parentElement!.innerHTML = '<div class="w-full h-full flex items-center justify-center"><span class="text-gray-500">Image not available</span></div>';
+                        }}
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <span className="text-gray-500">No image available</span>
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-6 space-y-4">
