@@ -1,3 +1,4 @@
+// api package - handles HTTP requests and responses
 package api
 
 import (
@@ -12,40 +13,42 @@ import (
 	"gorm.io/gorm"
 )
 
+// Login - authenticate user and return JWT token
+// POST /login - expects email and password in request body
 func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
-	log.Printf("🔵 Login: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
+	log.Printf("Debug Login: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
 	
 	// Ensure we always send a response, even on panic
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.Printf("❌ Login: Panic recovered: %v", rec)
+			log.Printf("Error Login: Panic recovered: %v", rec)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 	}()
 
-	log.Printf("🔵 Login: Starting request processing")
-	
+	log.Printf("Debug Login: Starting request processing")
+
 	// Safety check for validate
 	if validate == nil {
-		log.Printf("❌ Login: CRITICAL - validate is nil!")
+		log.Printf("Error Login: CRITICAL - validate is nil!")
 		http.Error(w, "Server configuration error", http.StatusInternalServerError)
 		return
 	}
 	
 	var creds auth.LoginCredentials
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
-		log.Printf("❌ Login: Failed to decode request body: %v", err)
+		log.Printf("Error Login: Failed to decode request body: %v", err)
 		http.Error(w, "Invalid Request", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("🔵 Login: Decoded credentials - Email: %s", creds.Email)
+	log.Printf("Debug Login: Decoded credentials - Email: %s", creds.Email)
 	
 	// Validate credentials - wrap in recover to catch any panics
 	validationErr := func() (err error) {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("❌ Login: Validation panic: %v", rec)
+				log.Printf("Error Login: Validation panic: %v", rec)
 				err = fmt.Errorf("validation panic: %v", rec)
 			}
 		}()
@@ -53,52 +56,52 @@ func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}()
 	
 	if validationErr != nil {
-		log.Printf("❌ Login: Validation failed: %v", validationErr)
+		log.Printf("Error Login: Validation failed: %v", validationErr)
 		http.Error(w, "Validation Error: "+validationErr.Error(), http.StatusBadRequest)
 		return
 	}
-	
-	log.Printf("🔵 Login: Validation passed")
+
+	log.Printf("Debug Login: Validation passed")
 
 	// Check if database handler is available
 	if handler.db == nil {
-		log.Printf("❌ Login: CRITICAL - Database handler is nil!")
+		log.Printf("Error Login: CRITICAL - Database handler is nil!")
 		http.Error(w, "Database connection not available", http.StatusInternalServerError)
 		return
 	}
 
 	user, err := handler.db.GetUserByCredentials(creds)
 	if err != nil {
-		log.Printf("❌ Login: Database error for email %s: %v", creds.Email, err)
+		log.Printf("Error Login: Database error for email %s: %v", creds.Email, err)
 		// Check if it's a "record not found" error (user doesn't exist) or password mismatch
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			log.Printf("❌ Login: User not found for email %s", creds.Email)
+			log.Printf("Error Login: User not found for email %s", creds.Email)
 			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		} else {
 			// Other database errors (connection issues, etc.) or password mismatch
-			log.Printf("❌ Login: Database query failed or password mismatch: %v", err)
+			log.Printf("Error Login: Database query failed or password mismatch: %v", err)
 			// Password mismatch from bcrypt will also come here, treat as invalid credentials
 			http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		}
 		return
 	}
 
-	log.Printf("🔍 Login: User retrieved - ID: %s, Email: %s, Role: %s, ApprovalStatus: %s", 
+	log.Printf("Info Login: User retrieved - ID: %s, Email: %s, Role: %s, ApprovalStatus: %s",
 		user.ID.String(), user.Email, string(user.Role), string(user.ApprovalStatus))
 
 	token, err := auth.GenerateToken(user.ID, user.Email)
 	if err != nil {
-		log.Printf("❌ Login: Failed to generate token: %v", err)
+		log.Printf("Error Login: Failed to generate token: %v", err)
 		http.Error(w, "Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	// Create a safe user response (exclude password hash)
+	// Create a safe user response (exclude password hashs)
 	// Handle potential empty/null values safely
 	approvalStatus := string(user.ApprovalStatus)
 	if approvalStatus == "" {
 		approvalStatus = "pending" // Default value
-		log.Printf("⚠️ Login: ApprovalStatus was empty, defaulting to 'pending'")
+		log.Printf("Warning Login: ApprovalStatus was empty, defaulting to 'pending'")
 	}
 
 	userResponse := map[string]any{
@@ -117,13 +120,13 @@ func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
 		"user":  userResponse,
 	}
 
-	log.Printf("🔍 Login: Attempting to serialize response for user %s", user.Email)
-	
+	log.Printf("Info Login: Attempting to serialize response for user %s", user.Email)
+
 	// Wrap render.JSON in recover to catch any serialization panics
 	func() {
 		defer func() {
 			if rec := recover(); rec != nil {
-				log.Printf("❌ Login: JSON serialization panic: %v", rec)
+				log.Printf("Error Login: JSON serialization panic: %v", rec)
 				// Try to send a basic error response if we haven't written headers yet
 				if w.Header().Get("Content-Type") == "" {
 					http.Error(w, fmt.Sprintf("Response serialization error: %v", rec), http.StatusInternalServerError)
@@ -132,10 +135,12 @@ func (handler *RequestHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}()
 		render.JSON(w, r, response)
 	}()
-	
-	log.Printf("✅ Login: Successfully authenticated user %s", user.Email)
+
+	log.Printf("Success Login: Successfully authenticated user %s", user.Email)
 }
 
+// RegisterUser - create new user account
+// POST /register - expects email, password, name, wallet_address
 func (handler *RequestHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 	var userDetails auth.RegisterUserPayload
 	if err := json.NewDecoder(r.Body).Decode(&userDetails); err != nil {

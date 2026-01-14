@@ -6,8 +6,8 @@ import type {
   User,
 } from "../types";
 
-// Use backend service name for Docker, localhost for local development
-const BASE_URL = import.meta.env.DEV ? "/api" : "/api";
+// Use environment variable for production, fallback to localhost for local development
+const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3000";
 
 const getHeaders = () => {
   const token = localStorage.getItem("token");
@@ -20,7 +20,7 @@ const getHeaders = () => {
   return headers;
 };
 
-// Retry helper for API calls
+// Retry helper for API callss
 const fetchWithRetry = async (
   url: string,
   options: RequestInit,
@@ -35,7 +35,7 @@ const fetchWithRetry = async (
         // Check if it's a connection-related 500 (backend not ready)
         const text = await response.text();
         if (text.includes("connection") || text.includes("refused") || text.length === 0) {
-          console.log(`⏳ Backend may still be starting (500 error), retrying in ${retryDelay}ms... (attempt ${i + 1}/${maxRetries})`);
+          console.log(`Backend may still be starting (500 error), retrying in ${retryDelay}ms... (attempt ${i + 1}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, retryDelay));
           retryDelay *= 1.5; // Exponential backoff
           continue;
@@ -57,7 +57,7 @@ const fetchWithRetry = async (
           error.message?.includes("Failed to fetch") ||
           error.message?.includes("NetworkError") ||
           error.name === "TypeError") {
-        console.log(`⏳ Backend not ready, retrying in ${retryDelay}ms... (attempt ${i + 1}/${maxRetries})`);
+        console.log(`Backend not ready, retrying in ${retryDelay}ms... (attempt ${i + 1}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, retryDelay));
         retryDelay *= 1.5; // Exponential backoff
         continue;
@@ -84,7 +84,9 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
   return response.json() as Promise<T>;
 };
 
+// api object - main API client with all backend endpoints
 export const api = {
+  // login - authenticate user with email and password
   login: async (email: string, password: string): Promise<LoginResponse> => {
     const response = await fetchWithRetry(`${BASE_URL}/login`, {
       method: "POST",
@@ -113,6 +115,7 @@ export const api = {
     return handleResponse(response);
   },
 
+  // getProperties - fetch all available properties
   getProperties: async (): Promise<Property[]> => {
     const response = await fetchWithRetry(`${BASE_URL}/properties`, {
       headers: getHeaders(),
@@ -425,7 +428,7 @@ export const api = {
     payload: { name: string; symbol: string; valuation: number; token_supply: number },
     files: File[]
   ): Promise<{ status: string; message: string; request_id: string; files_count: number }> => {
-    console.log("📤 Creating property upload request:", payload.name);
+    console.log("Creating property upload request:", payload.name);
 
     // Create FormData for multipart request
     const formData = new FormData();
@@ -459,7 +462,7 @@ export const api = {
   },
 
   getPropertyUploadRequests: async (): Promise<any[]> => {
-    console.log("📋 Fetching property upload requests");
+    console.log("Fetching property upload requests");
     const response = await fetch(`${BASE_URL}/property-upload-requests`, {
       headers: getHeaders(),
     });
@@ -467,7 +470,7 @@ export const api = {
   },
 
   getMyPropertyUploadRequests: async (): Promise<any[]> => {
-    console.log("📋 Fetching my property upload requests");
+    console.log("Fetching my property upload requests");
     const response = await fetch(`${BASE_URL}/property-upload-requests/user`, {
       headers: getHeaders(),
     });
@@ -475,7 +478,7 @@ export const api = {
   },
 
   getPropertyUploadRequest: async (id: string): Promise<any> => {
-    console.log("📋 Fetching property upload request:", id);
+    console.log("Fetching property upload request:", id);
     const response = await fetch(`${BASE_URL}/property-upload-requests/${id}`, {
       headers: getHeaders(),
     });
@@ -485,7 +488,7 @@ export const api = {
   approvePropertyUploadRequest: async (
     id: string
   ): Promise<{ status: string; message: string; request_id: string; property_id: string; tx_hash: string; asset_address: string; token_address: string }> => {
-    console.log("✅ Approving property upload request:", id);
+    console.log("Approving property upload request:", id);
     const response = await fetch(`${BASE_URL}/property-upload-requests/${id}/approve`, {
       method: "POST",
       headers: getHeaders(),
@@ -497,7 +500,7 @@ export const api = {
     id: string,
     reason: string
   ): Promise<{ status: string; message: string; request_id: string }> => {
-    console.log("❌ Rejecting property upload request:", id);
+    console.log("Rejecting property upload request:", id);
     const response = await fetch(`${BASE_URL}/property-upload-requests/${id}/reject`, {
       method: "POST",
       headers: getHeaders(),

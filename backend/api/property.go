@@ -39,52 +39,52 @@ func (handler *RequestHandler) GetProperty(w http.ResponseWriter, r *http.Reques
 }
 
 func (handler *RequestHandler) CreateProperty(w http.ResponseWriter, r *http.Request) {
-	// Ensure we always send a response, even on panic
+	// Ensure we always send a response, even on panik
 	defer func() {
 		if rec := recover(); rec != nil {
-			log.Printf("❌ CreateProperty: Panic recovered: %v", rec)
+			log.Printf("CreateProperty: Panic recovered: %v", rec)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 	}()
 
 	payload, files, err := handler.parseCreatePropertyRequest(r)
 	if err != nil {
-		log.Printf("❌ CreateProperty: Request parsing failed: %v", err)
+		log.Printf("CreateProperty: Request parsing failed: %v", err)
 		http.Error(w, "Request Error: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("📋 CreateProperty: Received request - Owner: %s, Name: %s, Symbol: %s, Valuation: %d, TokenSupply: %d, Files: %d",
+	log.Printf("CreateProperty: Received request - Owner: %s, Name: %s, Symbol: %s, Valuation: %d, TokenSupply: %d, Files: %d",
 		payload.OwnerAddress, payload.Name, payload.Symbol, payload.Valuation, payload.TokenSupply, len(files))
 
 	// Check if chain service is available
 	if handler.chain == nil {
-		log.Printf("❌ CreateProperty: Blockchain service not available")
+		log.Printf("CreateProperty: Blockchain service not available")
 		http.Error(w, "Blockchain service not available - check environment configuration", http.StatusServiceUnavailable)
 		return
 	}
 
 	dbDocs, mainHash, err := handler.processPropertyFiles(files)
 	if err != nil {
-		log.Printf("❌ CreateProperty: File processing failed: %v", err)
+		log.Printf("CreateProperty: File processing failed: %v", err)
 		http.Error(w, "Upload Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✅ CreateProperty: Processed %d files, main hash: %s", len(dbDocs), mainHash)
+	log.Printf("CreateProperty: Processed %d files, main hash: %s", len(dbDocs), mainHash)
 
 	// Submit to blockchain and wait for confirmation
 	result, err := handler.createPropertyOnChain(payload, mainHash)
 	if err != nil {
-		log.Printf("❌ CreateProperty: Blockchain transaction failed: %v", err)
+		log.Printf("CreateProperty: Blockchain transaction failed: %v", err)
 		http.Error(w, "Blockchain Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✅ CreateProperty: Blockchain transaction confirmed - Hash: %s", result.TxHash)
-	log.Printf("📝 CreateProperty: Asset: %s, Token: %s", result.AssetAddress, result.TokenAddress)
+	log.Printf("CreateProperty: Blockchain transaction confirmed - Hash: %s", result.TxHash)
+	log.Printf("CreateProperty: Asset: %s, Token: %s", result.AssetAddress, result.TokenAddress)
 
-	// Create property record in database
+	// Create property record in databse
 	property := models.Property{
 		ID:                  uuid.New(),
 		Name:                result.PropertyName,
@@ -99,19 +99,19 @@ func (handler *RequestHandler) CreateProperty(w http.ResponseWriter, r *http.Req
 	}
 
 	if err := handler.db.CreateProperty(property); err != nil {
-		log.Printf("❌ CreateProperty: Database save failed: %v", err)
+		log.Printf("CreateProperty: Database save failed: %v", err)
 		// Property exists on blockchain but not in DB - log error but don't fail the request
 		// The event listener can pick it up later
-		log.Printf("⚠️ Property created on blockchain but DB save failed. Event listener will retry.")
+		log.Printf("Warning: Property created on blockchain but DB save failed. Event listener will retry.")
 	} else {
-		log.Printf("✅ CreateProperty: Property saved to database - ID: %s", property.ID)
+		log.Printf("CreateProperty: Property saved to database - ID: %s", property.ID)
 	}
 
 	// Link documents to property
 	for i := range dbDocs {
 		dbDocs[i].PropertyID = property.ID
 		if err := handler.db.CreatePropertyDocument(dbDocs[i]); err != nil {
-			log.Printf("⚠️ Failed to save document %d: %v", i, err)
+			log.Printf("Warning: Failed to save document %d: %v", i, err)
 		}
 	}
 
@@ -162,18 +162,18 @@ func (handler *RequestHandler) UpdatePropertyApproval(w http.ResponseWriter, r *
 		case models.ApprovalApproved:
 			tx, err = handler.chain.ApproveProperty(prop.OnchainAssetAddress)
 			if err != nil {
-				log.Printf("⚠️ Blockchain approval failed: %v", err)
+				log.Printf("Warning: Blockchain approval failed: %v", err)
 				// Continue with DB update even if blockchain fails
 			} else {
-				log.Printf("✅ Blockchain approval transaction: %s", tx.Hash().Hex())
+				log.Printf("Blockchain approval transaction: %s", tx.Hash().Hex())
 			}
 		case models.ApprovalRejected:
 			tx, err = handler.chain.RejectProperty(prop.OnchainAssetAddress)
 			if err != nil {
-				log.Printf("⚠️ Blockchain rejection failed: %v", err)
+				log.Printf("Warning: Blockchain rejection failed: %v", err)
 				// Continue with DB update even if blockchain fails
 			} else {
-				log.Printf("✅ Blockchain rejection transaction: %s", tx.Hash().Hex())
+				log.Printf("Blockchain rejection transaction: %s", tx.Hash().Hex())
 			}
 		}
 	}

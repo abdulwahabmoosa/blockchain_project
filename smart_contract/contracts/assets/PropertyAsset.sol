@@ -77,7 +77,7 @@ contract PropertyAsset is ERC721, AccessControl {
     }
 
 
-//Lets tools know this contract supports ERC721 + AccessControl interfaces.
+//Lets tools know this contract supports ERC721 + AccessControl interfacess.
     function supportsInterface(bytes4 interfaceId)
         public
         view

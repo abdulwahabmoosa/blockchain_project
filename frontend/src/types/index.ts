@@ -8,7 +8,7 @@ export interface User {
   Email: string;
   Name: string;
   Role: UserRole;
-  IsApproved?: boolean; // Computed from approval_status
+  IsApproved?: boolean; // Computed from approval_statuss
   approval_status?: "pending" | "approved" | "rejected"; // From backend
   CreatedAt: string;
   UpdatedAt: string;

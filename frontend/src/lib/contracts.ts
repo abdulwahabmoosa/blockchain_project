@@ -7,8 +7,8 @@ import { getContractAddresses } from "./wallet";
 
 /**
  * Contracts Interaction Utility
- * 
- * This module provides functions to interact with the smart contracts directly.
+ *
+ * This module provides functions to interact with the smart contracts directlyy.
  * These functions use ethers.js to read data and send transactions to the blockchain.
  */
 
@@ -110,7 +110,7 @@ export const checkApprovalStatus = async (
   walletAddress: string,
   provider: BrowserProvider | ethers.AbstractProvider
 ): Promise<boolean> => {
-  console.log('🔧 checkApprovalStatus v2.0 - NEW CODE LOADED'); // Unique marker to verify new code
+  console.log('Debug: checkApprovalStatus v2.0 - NEW CODE LOADED'); // Unique marker to verify new code
   const approvalServiceAddress = addresses.ApprovalService;
 
   // Validate inputs
@@ -120,7 +120,7 @@ export const checkApprovalStatus = async (
 
   // Check if contract is deployed (not a zero address)
   if (!approvalServiceAddress || approvalServiceAddress === "0x0000000000000000000000000000000000000000") {
-    console.log(`⚠️ ApprovalService contract not deployed locally. Assuming user is not approved.`);
+    console.log(`Warning: ApprovalService contract not deployed locally. Assuming user is not approved.`);
     return false; // Assume not approved if contract not deployed
   }
 
@@ -128,8 +128,8 @@ export const checkApprovalStatus = async (
     throw new Error(`Invalid approval service address: ${approvalServiceAddress}`);
   }
 
-  console.log(`🔍 Checking approval for ${walletAddress} on contract ${approvalServiceAddress}`);
-  console.log(`📋 Contract details:`, {
+  console.log(`Debug: Checking approval for ${walletAddress} on contract ${approvalServiceAddress}`);
+  console.log(`Info: Contract details:`, {
     approvalServiceAddress,
     walletAddress
   });
@@ -138,16 +138,16 @@ export const checkApprovalStatus = async (
   try {
     const contractCode = await provider.getCode(approvalServiceAddress);
     if (!contractCode || contractCode === "0x" || contractCode === "0x0") {
-      console.log(`⚠️ No contract deployed at ${approvalServiceAddress}. This may indicate:`);
+      console.log(`Warning: No contract deployed at ${approvalServiceAddress}. This may indicate:`);
       console.log(`   - Contracts not deployed to this network`);
       console.log(`   - Wrong network selected in wallet`);
       console.log(`   - RPC endpoint issue`);
       console.log(`   Returning false - caller should check persisted approvals as fallback.`);
       return false;
     }
-    console.log(`✅ Contract exists at ${approvalServiceAddress} (bytecode length: ${contractCode.length})`);
+    console.log(`Success: Contract exists at ${approvalServiceAddress} (bytecode length: ${contractCode.length})`);
   } catch (codeCheckError: any) {
-    console.warn(`⚠️ Failed to check contract code at ${approvalServiceAddress}:`, codeCheckError);
+    console.warn(`Warning: Failed to check contract code at ${approvalServiceAddress}:`, codeCheckError);
     console.warn(`   This may be an RPC issue. Caller should check persisted approvals as fallback.`);
     // Continue anyway - might still be able to call
   }
@@ -164,8 +164,8 @@ export const checkApprovalStatus = async (
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      console.log(`🔄 Approval check attempt ${attempt} for ${walletAddress}`);
-      console.log(`📡 Calling contract.check(${walletAddress})`);
+      console.log(`Info: Approval check attempt ${attempt} for ${walletAddress}`);
+      console.log(`Debug: Calling contract.check(${walletAddress})`);
 
       // Add timeout to individual call
       const checkPromise = approvalContract.check(walletAddress);
@@ -174,14 +174,14 @@ export const checkApprovalStatus = async (
       );
 
       const isApproved = await Promise.race([checkPromise, timeoutPromise]);
-      console.log(`📋 Raw contract response for ${walletAddress}:`, isApproved);
+      console.log(`Info: Raw contract response for ${walletAddress}:`, isApproved);
 
       // Validate the result is boolean
       if (typeof isApproved !== 'boolean') {
         throw new Error(`Invalid response type from contract: ${typeof isApproved}`);
       }
 
-      console.log(`✅ Approval check successful for ${walletAddress}: ${isApproved}`);
+      console.log(`Success: Approval check successful for ${walletAddress}: ${isApproved}`);
       return isApproved;
 
     } catch (error: any) {
@@ -192,7 +192,7 @@ export const checkApprovalStatus = async (
       const errorString = String(error || '');
       
       // DEBUG: Log error structure to understand what we're dealing with
-      console.log('🔍 ERROR DEBUG:', {
+      console.log('Debug ERROR DEBUG:', {
         errorCode,
         errorMessage,
         hasCodeBadData: errorCode === 'BAD_DATA',
@@ -212,12 +212,12 @@ export const checkApprovalStatus = async (
         errorString.includes('code=BAD_DATA');
       
       if (isBadDataError) {
-        console.log(`✅ DETECTED BAD_DATA ERROR - Returning false immediately`);
-        console.log(`⚠️ Contract call failed with BAD_DATA/CALL_EXCEPTION (contract may not exist or method not available at ${approvalServiceAddress}). Assuming user is not approved.`);
+        console.log(`Info: DETECTED BAD_DATA ERROR - Returning false immediately`);
+        console.log(`Warning: Contract call failed with BAD_DATA/CALL_EXCEPTION (contract may not exist or method not available at ${approvalServiceAddress}). Assuming user is not approved.`);
         return false;
       }
       
-      console.warn(`⚠️ Approval check attempt ${attempt} failed for ${walletAddress}:`, error);
+      console.warn(`Warning: Approval check attempt ${attempt} failed for ${walletAddress}:`, error);
       
       // Log detailed error info for debugging (only if not BAD_DATA)
       const errorDetails = {
@@ -228,7 +228,7 @@ export const checkApprovalStatus = async (
         infoCode: error.info?.error?.code,
         errorString: String(error)
       };
-      console.warn(`📋 Error details:`, errorDetails);
+      console.warn(`Info: Error details:`, errorDetails);
       lastError = error;
 
       // Wait before retry (exponential backoff) - only for other types of errors
@@ -238,7 +238,7 @@ export const checkApprovalStatus = async (
     }
   }
 
-  console.error(`❌ All approval check attempts failed for ${walletAddress}:`, lastError);
+  console.error(`Error: All approval check attempts failed for ${walletAddress}:`, lastError);
   throw new Error(`Failed to check approval status after 3 attempts: ${lastError?.message || 'Unknown error'}`);
 };
 

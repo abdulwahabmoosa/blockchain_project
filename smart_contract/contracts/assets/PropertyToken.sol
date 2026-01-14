@@ -1,16 +1,16 @@
 
 /*
-  PropertyToken is the ERC20 token that represents fractional ownership of a real estate property. 
- It can only be minted by addresses with the MINTER_ROLE, usually the PropertyFactory when the property is created. 
+  PropertyToken is the ERC20 token that represents fractional ownership of a real estate property.
+ It can only be minted by addresses with the MINTER_ROLE, usually the PropertyFactory when the property is created.
 The token includes snapshot functionality, which allows the platform to freeze ownership balances at
-  a specific moment in time so that rental revenue can later be distributed fairly to whoever held tokens at that snapshot. 
+  a specific moment in time so that rental revenue can later be distributed fairly to whoever held tokens at that snapshot.
  Transfers of these tokens are restricted: they only work when the entire token contract is not paused,
-  the underlying property (represented by an ERC721 PropertyAsset) is in an Active status, 
-  and the receiving wallet has been approved by the ApprovalService. This ensures compliance-like behavior without KYC. 
-  The admin (DEFAULT_ADMIN_ROLE) can pause/unpause transfers and trigger snapshots if needed. Before every transfer, 
-  the token checks three things: the contract isn't paused, the property is active, and the recipient is approved. 
-  In short: this contract creates, controls, and safely restricts the movement of fractional tokens while enabling 
-  revenue distribution through snapshots.
+  the underlying property (represented by an ERC721 PropertyAsset) is in an Active status,
+  and the receiving wallet has been approved by the ApprovalService. This ensures compliance-like behavior without KYC.
+  The admin (DEFAULT_ADMIN_ROLE) can pause/unpause transfers and trigger snapshots if needed. Before every transfer,
+  the token checks three things: the contract isn't paused, the property is active, and the recipient is approved.
+  In short: this contract creates, controls, and safely restricts the movement of fractional tokens while enabling
+  revenue distribution through snapshotss.
 
   */
   //Snapshots freeze ERC20 token ownership at the moment rental income is deposited, 
@@ -26,7 +26,7 @@ import "@openzeppelin/contracts/security/Pausable.sol";
 
 
 //Interfaces let your contract talk to another contract
-//without importing its full code.
+//without importing its full codee.
 //They define what can be called, not how it works.
 interface IPropertyAsset {
     enum Status { Active, Paused, Disputed, Closed }

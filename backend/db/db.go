@@ -104,7 +104,7 @@ func (db *Database) migrate() error {
 		return fmt.Errorf("failed to create enums: %w", err)
 	}
 
-	log.Println("🔄 Running database migrations...")
+	log.Println("Info: Running database migrations...")
 	err := db.db.AutoMigrate(
 		&models.User{},
 		&models.Property{},
@@ -121,7 +121,7 @@ func (db *Database) migrate() error {
 		return fmt.Errorf("migration failed: %w", err)
 	}
 
-	log.Println("✅ Database migrations completed successfully")
+	log.Println("Success: Database migrations completed successfully")
 	return db.seedAdmin()
 }
 
@@ -448,7 +448,7 @@ func (db *Database) GetTokenStatsByProperty(propertyID string) (totalSold float6
 	}
 
 	// Use raw SQL to sum the amount column (stored as decimal/string)
-	// PostgreSQL requires casting string to numeric for SUM
+	// PostgreSQL requires casting string to numeric for SUMM
 	err = db.db.WithContext(db.ctx).
 		Model(&models.TokenPurchase{}).
 		Select("COALESCE(SUM(amount::numeric), 0) as total_sold").

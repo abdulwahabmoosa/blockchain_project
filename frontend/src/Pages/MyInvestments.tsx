@@ -93,13 +93,13 @@ function MyInvestments() {
           console.log("📋 Properties with purchases:", Array.from(purchasedPropertyIds));
         } catch (purchaseErr) {
           // If purchases API fails, continue without purchase data (still show owner properties)
-          console.warn("⚠️ Failed to fetch token purchases (non-critical):", purchaseErr);
+          console.warn("Warning: Failed to fetch token purchases (non-critical):", purchaseErr);
         }
         
         // Use user's registered wallet address from database (more reliable than connected wallet)
         const userWalletAddress = user.WalletAddress.toLowerCase();
         
-        console.log("🔍 MyInvestments: Filtering properties for wallet:", userWalletAddress);
+        console.log("MyInvestments: Filtering properties for wallet:", userWalletAddress);
         console.log("📋 Total properties found:", allProperties.length);
 
         // Filter properties where user is owner OR has token balance > 0 OR has purchases recorded
@@ -110,7 +110,7 @@ function MyInvestments() {
           const propertyOwnerWallet = property.OwnerWallet?.toLowerCase() || "";
           const isOwner = propertyOwnerWallet === userWalletAddress;
           
-          console.log(`🔍 Checking property ${property.ID}:`, {
+          console.log(`Checking property ${property.ID}:`, {
             propertyOwner: propertyOwnerWallet,
             userWallet: userWalletAddress,
             isOwner,
@@ -149,14 +149,14 @@ function MyInvestments() {
                     );
                     filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH, claimableDistributions: claimable });
                   } catch (err) {
-                    console.warn(`⚠️ Could not fetch claimable distributions for property ${property.ID}`);
+                    console.warn(`Warning: Could not fetch claimable distributions for property ${property.ID}`);
                     filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH });
                   }
                 } else {
                   filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH });
                 }
               } catch (err) {
-                console.warn(`⚠️ Could not fetch owner balance for property ${property.ID}`);
+                console.warn(`Warning: Could not fetch owner balance for property ${property.ID}`);
                 filteredProperties.push(property);
               }
             } else {
@@ -192,7 +192,7 @@ function MyInvestments() {
                       );
                       filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH, claimableDistributions: claimable });
                     } catch (err) {
-                      console.warn(`⚠️ Could not fetch claimable distributions for property ${property.ID}`);
+                      console.warn(`Warning: Could not fetch claimable distributions for property ${property.ID}`);
                       filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH });
                     }
                   } else {
@@ -210,7 +210,7 @@ function MyInvestments() {
               // No purchase record, but check blockchain balance as fallback
               try {
                 // Check balance for registered wallet address
-                console.log(`🔍 Checking token balance for property ${property.ID}:`, {
+                console.log(`Checking token balance for property ${property.ID}:`, {
                   tokenAddress: property.OnchainTokenAddress,
                   registeredWallet: userWalletAddress,
                   connectedWallet: address?.toLowerCase(),
@@ -256,14 +256,14 @@ function MyInvestments() {
                       );
                       filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH, claimableDistributions: claimable });
                     } catch (err) {
-                      console.warn(`⚠️ Could not fetch claimable distributions for property ${property.ID}`);
+                      console.warn(`Warning: Could not fetch claimable distributions for property ${property.ID}`);
                       filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH });
                     }
                   } else {
                     filteredProperties.push({ ...property, tokenBalance: tokenBalanceStr, tokenValueETH });
                   }
                 } else {
-                  console.log(`⚠️ Excluding property ${property.ID} (investor but no tokens found)`);
+                  console.log(`Warning: Excluding property ${property.ID} (investor but no tokens found)`);
                 }
               } catch (err) {
                 console.error(`❌ Failed to check balance for property ${property.ID}:`, err);
@@ -271,7 +271,7 @@ function MyInvestments() {
               }
             } else {
               // If wallet not connected and no purchase record, don't show investor properties
-              console.log(`⚠️ Excluding property ${property.ID} (investor, no purchase record and wallet not connected)`);
+              console.log(`Warning: Excluding property ${property.ID} (investor, no purchase record and wallet not connected)`);
             }
           }
         }

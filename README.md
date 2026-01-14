@@ -4,9 +4,9 @@ A robust backend for tokenizing Real World Assets (Real Estate) on the Ethereum 
 ---
 
 
-## 📡 API Documentation
+## API Documentation
 
-### 🔓 Public Routes
+### Public Routes
 
 #### Health Check
 
@@ -43,7 +43,7 @@ A robust backend for tokenizing Real World Assets (Real Estate) on the Ethereum 
 
 ---
 
-### 👤 User Profile (Authenticated)
+### User Profile (Authenticated)
 
 #### Update Profile
 
@@ -71,7 +71,7 @@ A robust backend for tokenizing Real World Assets (Real Estate) on the Ethereum 
 
 ---
 
-### 🏠 Property Routes (Authenticated)
+### Property Routes (Authenticated)
 
 #### Create Property (Multipart)
 

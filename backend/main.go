@@ -1,3 +1,4 @@
+// main package - entry point for backend application
 package main
 
 import (
@@ -8,35 +9,40 @@ import (
 	"log"
 )
 
+// main function - application startup sequence
 func main() {
-	// 1. Initialize DB
-	log.Printf("🔄 Initializing database...")
+	// setup database first, required for everything
+	// database init includes migrations and admin user creation
+	log.Printf("Setting up database connection...")
 	database, err := db.NewDatabase()
 	if err != nil {
-		log.Fatalf("❌ DB Connection failed: %v", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	log.Printf("✅ DB connection successful")
+	log.Printf("Database connected successfully")
 
-	// 2. Initialize Blockchain Service
-	log.Printf("🔄 Initializing blockchain service...")
+	// try blockchain connection, optional - system works without it
+	// blockchain service handles smart contract interactions
+	log.Printf("Attempting to connect to blockchain...")
 	chainService, err := blockchain.NewChainServiceEnv()
 	if err != nil {
-		log.Printf("⚠️ Blockchain Connection failed: %v", err)
-		log.Printf("⚠️ Continuing without blockchain functionality")
+		log.Printf("Warning: Could not connect to blockchain: %v", err)
+		log.Printf("Warning: System will continue without blockchain features")
 		chainService = nil
 	} else {
-		log.Printf("✅ Blockchain connection successful (Chain ID: %s)", chainService.ChainID.String())
+		log.Printf("Blockchain connected (Chain ID: %s)", chainService.ChainID.String())
 	}
 
-	// 3. Start blockchain event listeners (if blockchain is available)
+	// start event listeners if blockchain available
+	// listeners monitor contract events and update database
 	if chainService != nil {
-		log.Printf("🔄 Starting blockchain event listeners...")
+		log.Printf("Starting blockchain event monitoring...")
 		worker.StartListeners(chainService, database)
-		log.Printf("✅ Blockchain listeners started (may show warnings if RPC doesn't support subscriptions)")
+		log.Printf("Event listeners active (might see warnings if RPC doesn't support event subscriptions)")
 	}
 
-	// 4. Start API Server
-	// Pass both DB and ChainService to the handler
+	// finally start the API server
+	// api handler needs both database and blockchain service
+	log.Printf("Starting API server...")
 	handler := api.NewRequestHandler(database, chainService)
 	handler.Start()
 }

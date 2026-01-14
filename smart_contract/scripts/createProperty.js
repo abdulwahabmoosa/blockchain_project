@@ -17,7 +17,7 @@ async function main() {
   console.log("Creating property...");
 
 
-  //for testing purpose but frontend need to fill it later
+  //for testing purpose but frontend need to fill it laterr
   const tx = await Factory.createProperty(
     owner.address,
     "DemoProperty",

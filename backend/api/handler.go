@@ -30,7 +30,7 @@ import (
 // Initialize Validator
 var validate = validator.New()
 
-// Register custom validators
+// Register custom validaters
 func init() {
 	// eth_addr validator: checks if string starts with 0x and is 42 chars long (hex)
 	validate.RegisterValidation("eth_addr", func(fl validator.FieldLevel) bool {
@@ -52,6 +52,7 @@ func init() {
 }
 
 // --- Request Payloads with Validation Tags ---
+// structs for API request validation
 
 type CreatePropertyRequest struct {
 	OwnerAddress string  `json:"owner_address" validate:"required,eth_addr"`
@@ -59,7 +60,7 @@ type CreatePropertyRequest struct {
 	Symbol       string  `json:"symbol" validate:"required,alphanum,len=3-4"` // 3 or 4 chars, e.g. "PROP"
 	DataHash     string  `json:"data_hash" validate:"required,printascii"`    // IPFS hash usually ascii
 	Valuation    float64 `json:"valuation" validate:"required,gt=0"`          // Can be float from frontend
-	TokenSupply  int64   `json:"token_supply" validate:"required,gt=0"`
+	TokenSupply  int64   `json:"token_supply" validate:"required,gt=0"` // Token supply amount as integer
 }
 
 type DistributeRevenueRequest struct {
@@ -72,23 +73,27 @@ type ApproveUserRequest struct {
 	WalletAddress string `json:"wallet_address" validate:"required,eth_addr"`
 }
 
+// RequestHandler - main API handler struct
+// contains database and blockchain service references
 type RequestHandler struct {
-	db    *db.Database
-	chain *blockchain.ChainService
+	db    *db.Database      // database connection
+	chain *blockchain.ChainService // blockchain service (optional)
 }
 
+// NewRequestHandler - create new API handler instance
 func NewRequestHandler(db *db.Database, chain *blockchain.ChainService) *RequestHandler {
-	// Start blockchain event listeners (optional - won't crash if subscriptions fail)
+	// Setup blockchain event listeners (optional - won't crash if subscriptions fail)
 
 	return &RequestHandler{db, chain}
 }
 
+// Start - setup routes and start HTTP server
 func (handler *RequestHandler) Start() {
 	r := chi.NewRouter()
 
 	// CORS middleware configuration
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"}, // Allow frontend dev server and backend
+		AllowedOrigins:   []string{"https://*.vercel.app", "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"}, // Allow Vercel domains and local development
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"},
 		ExposedHeaders:   []string{"Link"},
@@ -101,7 +106,7 @@ func (handler *RequestHandler) Start() {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
-					log.Printf("❌ PANIC RECOVERED in middleware: %v, Path: %s, Method: %s", rec, r.URL.Path, r.Method)
+					log.Printf("PANIC RECOVERED in middleware: %v, Path: %s, Method: %s", rec, r.URL.Path, r.Method)
 					http.Error(w, "Internal server error", http.StatusInternalServerError)
 				}
 			}()
@@ -170,9 +175,9 @@ func (handler *RequestHandler) Start() {
 		Handler: r,
 	}
 
-	// Start Server in a Goroutine so it doesn't block
+	// Start Server in a Goroutine so it dont block
 	go func() {
-		log.Println("🚀 Server starting on port 3000...")
+		log.Println("Starting server on port 3000...")
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("listen: %s\n", err)
 		}
@@ -188,7 +193,7 @@ func (handler *RequestHandler) gracefulShutdown(srv *http.Server) {
 	// catch SIGINT (Ctrl+C) and SIGTERM (Docker stop)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("⚠️  Shutting down server...")
+	log.Println("Shutting down server...")
 
 	// The context is used to inform the server it has 5 seconds to finish
 	// the request it is currently handling
@@ -199,11 +204,13 @@ func (handler *RequestHandler) gracefulShutdown(srv *http.Server) {
 		log.Fatal("Server forced to shutdown: ", err)
 	}
 
-	log.Println("✅ Server exiting")
+	log.Println("Server exited successfully")
 }
 
 // Login is in auth.go
 
+// GetCurrentUser - get authenticated user profile
+// GET /users/me - requires authentication
 func (handler *RequestHandler) GetCurrentUser(w http.ResponseWriter, r *http.Request) {
 	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
 	if !ok {
@@ -285,7 +292,7 @@ func (handler *RequestHandler) UpdateUserApproval(w http.ResponseWriter, r *http
 	}
 
 	// 2. WAIT for mining
-	log.Printf("⏳ Waiting for approval tx to mine: %s", tx.Hash().Hex())
+	log.Printf("Waiting for approval tx to mine: %s", tx.Hash().Hex())
 	receipt, err := bind.WaitMined(r.Context(), handler.chain.Client, tx)
 	if err != nil || receipt.Status == 0 {
 		http.Error(w, "Transaction failed on-chain", http.StatusInternalServerError)
@@ -295,7 +302,7 @@ func (handler *RequestHandler) UpdateUserApproval(w http.ResponseWriter, r *http
 	// 3. Update DB immediately
 	err = handler.db.UpdateUserApproval(req.WalletAddress, "approved")
 	if err != nil {
-		log.Printf("❌ Failed to update DB after mining: %v", err)
+		log.Printf("Failed to update DB after mining: %v", err)
 	}
 
 	render.JSON(w, r, map[string]string{"tx_hash": tx.Hash().Hex(), "": "confirmed"})
@@ -371,7 +378,7 @@ func (handler *RequestHandler) ResetPassword(w http.ResponseWriter, r *http.Requ
 
 // RegisterUser is in auth.go
 
-// CreateProperty is now in property.go - uses multipart form data with files
+// DistributeRevenue handles revenue distribution to property tokens
 
 func (handler *RequestHandler) DistributeRevenue(w http.ResponseWriter, r *http.Request) {
 	var req DistributeRevenueRequest
@@ -399,57 +406,59 @@ func (handler *RequestHandler) DistributeRevenue(w http.ResponseWriter, r *http.
 	})
 }
 
+// ApproveUser - approve user for platform access
+// POST /approve-user - admin only, requires wallet_address
 func (handler *RequestHandler) ApproveUser(w http.ResponseWriter, r *http.Request) {
 	// Middleware has already checked Admin role
 
 	var req ApproveUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		log.Printf("❌ Failed to decode request: %v", err)
+		log.Printf("Failed to decode request: %v", err)
 		http.Error(w, "Invalid Request", http.StatusBadRequest)
 		return
 	}
 
 	// VALIDATION
 	if err := validate.Struct(req); err != nil {
-		log.Printf("❌ Validation failed: %v", err)
+		log.Printf("Validation failed: %v", err)
 		http.Error(w, "Validation Error: "+err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// // Check if chain service is available
 	// if handler.chain == nil {
-	// 	log.Printf("❌ Chain service not initialized - blockchain functionality disabled")
+	// 	log.Printf("Chain service not initialized - blockchain functionality disabled")
 	// 	http.Error(w, "Blockchain service not available - check environment configuration", http.StatusServiceUnavailable)
 	// 	return
 	// }
 	// chain, err := blockchain.NewChainServiceEnv()
 	// if err != nil {
-	// 	log.Printf("❌ Chain init failed: %v", err)
+	// 	log.Printf("Chain init failed: %v", err)
 	// } else {
-	// 	log.Printf("✅ Chain service initialized successfully")
+	// 	log.Printf("Chain service initialized successfully")
 	// }
 	// handler.chain = chain
 
 	// Check if Approval contract is deployed
 	if handler.chain.Approval == nil {
-		log.Printf("❌ Approval contract not deployed - cannot approve users")
+		log.Printf("Approval contract not deployed - cannot approve users")
 		http.Error(w, "Blockchain Error: approval contract not deployed - deploy contracts to enable blockchain functionality", http.StatusServiceUnavailable)
 		return
 	}
 
-	log.Printf("🔄 Approving user on blockchain: %s", req.WalletAddress)
+	log.Printf("Approving user on blockchain: %s", req.WalletAddress)
 	tx, err := handler.chain.ApproveUser(req.WalletAddress)
 	if err != nil {
-		log.Printf("❌ Blockchain approval failed for %s: %v", req.WalletAddress, err)
+		log.Printf("Blockchain approval failed for %s: %v", req.WalletAddress, err)
 		http.Error(w, "Blockchain Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("✅ Blockchain approval confirmed for: %s", req.WalletAddress)
+	log.Printf("Blockchain approval confirmed for: %s", req.WalletAddress)
 
 	// Check final approval status
 	approved, err := handler.chain.IsApproved(req.WalletAddress)
 	if err != nil {
-		log.Printf("⚠️ Could not verify approval status: %v", err)
+		log.Printf("Warning: Could not verify approval status: %v", err)
 		approved = false // assume not approved if we can't check
 	}
 
@@ -461,12 +470,12 @@ func (handler *RequestHandler) ApproveUser(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// GetProperties and GetProperty are now in property.go
-
+// GetUsers - get all users in system
+// GET /users - admin only endpoint
 func (handler *RequestHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := handler.db.GetAllUsers()
 	if err != nil {
-		log.Printf("❌ GetUsers error: %v", err)
+		log.Printf("GetUsers error: %v", err)
 		http.Error(w, "Failed to fetch users: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -499,6 +508,8 @@ func (handler *RequestHandler) AdminMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// UploadMetadata - upload file to IPFS
+// POST /upload - accepts multipart form with file
 func (handler *RequestHandler) UploadMetadata(w http.ResponseWriter, r *http.Request) {
 	// 1. Parse Multipart Form (10 MB limit)
 	if err := r.ParseMultipartForm(10 << 20); err != nil {
@@ -724,9 +735,9 @@ func (handler *RequestHandler) TransferPropertyTokens(w http.ResponseWriter, r *
 
 	if err := handler.db.CreateTokenPurchase(purchase); err != nil {
 		// Log error but don't fail the request - tokens are already transferred
-		log.Printf("⚠️ Failed to record token purchase in database: %v (Transaction: %s)", err, txHash)
+		log.Printf("Warning: Failed to record token purchase in database: %v (Transaction: %s)", err, txHash)
 	} else {
-		log.Printf("✅ Token purchase recorded: Property=%s, Buyer=%s, Amount=%s, TX=%s", id, req.ToAddress, amountStr, txHash)
+		log.Printf("Token purchase recorded: Property=%s, Buyer=%s, Amount=%s, TX=%s", id, req.ToAddress, amountStr, txHash)
 	}
 
 	render.JSON(w, r, map[string]string{
@@ -779,12 +790,12 @@ func (handler *RequestHandler) CreateTokenPurchase(w http.ResponseWriter, r *htt
 	}
 
 	if err := handler.db.CreateTokenPurchase(purchase); err != nil {
-		log.Printf("❌ Failed to create token purchase: %v", err)
+		log.Printf("Failed to create token purchase: %v", err)
 		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✅ Token purchase recorded: Property=%s, Buyer=%s, Amount=%s, PaymentTX=%s", id, req.BuyerWallet, req.Amount, req.PaymentTxHash)
+	log.Printf("Token purchase recorded: Property=%s, Buyer=%s, Amount=%s, PaymentTX=%s", id, req.BuyerWallet, req.Amount, req.PaymentTxHash)
 
 	render.JSON(w, r, map[string]interface{}{
 		"status":      "success",
@@ -828,7 +839,7 @@ func (handler *RequestHandler) GetPendingTokenPurchases(w http.ResponseWriter, r
 	// Get pending purchases
 	purchases, err := handler.db.GetPendingTokenPurchasesByProperty(id)
 	if err != nil {
-		log.Printf("❌ Failed to get pending purchases: %v", err)
+		log.Printf("Failed to get pending purchases: %v", err)
 		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -972,12 +983,12 @@ func (handler *RequestHandler) UpdateTokenPurchaseTxHash(w http.ResponseWriter, 
 
 	// Update the purchase record
 	if err := handler.db.UpdateTokenPurchaseTxHash(purchaseId, req.TokenTxHash); err != nil {
-		log.Printf("❌ Failed to update token purchase: %v", err)
+		log.Printf("Failed to update token purchase: %v", err)
 		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("✅ Token purchase updated: PurchaseID=%s, TokenTX=%s", purchaseId, req.TokenTxHash)
+	log.Printf("Token purchase updated: PurchaseID=%s, TokenTX=%s", purchaseId, req.TokenTxHash)
 
 	render.JSON(w, r, map[string]interface{}{
 		"status":  "success",
@@ -988,38 +999,38 @@ func (handler *RequestHandler) UpdateTokenPurchaseTxHash(w http.ResponseWriter, 
 // GetMyTokenPurchases handles GET /users/me/purchases
 // Returns all token purchases made by the authenticated user (as buyer)
 func (handler *RequestHandler) GetMyTokenPurchases(w http.ResponseWriter, r *http.Request) {
-	log.Printf("🔵 GetMyTokenPurchases: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
+	log.Printf("Debug GetMyTokenPurchases: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
 	
 	// Get authenticated user
 	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
 	if !ok {
-		log.Printf("❌ GetMyTokenPurchases: Unauthorized - no claims in context")
+		log.Printf("GetMyTokenPurchases: Unauthorized - no claims in context")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
-	log.Printf("🔵 GetMyTokenPurchases: User ID: %s", claims.UserID.String())
+
+	log.Printf("GetMyTokenPurchases: User ID: %s", claims.UserID.String())
 
 	// Get user to get wallet address
 	user, err := handler.db.GetUserById(claims.UserID.String())
 	if err != nil {
-		log.Printf("❌ GetMyTokenPurchases: User not found: %v", err)
+		log.Printf("GetMyTokenPurchases: User not found: %v", err)
 		http.Error(w, "User not found", http.StatusNotFound)
 		return
 	}
 
 	if user.WalletAddress == "" {
-		log.Printf("❌ GetMyTokenPurchases: User wallet address not found")
+		log.Printf("GetMyTokenPurchases: User wallet address not found")
 		http.Error(w, "User wallet address not found", http.StatusBadRequest)
 		return
 	}
 
-	log.Printf("🔵 GetMyTokenPurchases: Fetching purchases for wallet: %s", user.WalletAddress)
+	log.Printf("Debug GetMyTokenPurchases: Fetching purchases for wallet: %s", user.WalletAddress)
 	
 	// Get all purchases by this buyer
 	purchases, err := handler.db.GetTokenPurchasesByBuyer(user.WalletAddress)
 	if err != nil {
-		log.Printf("❌ Failed to get token purchases: %v", err)
+		log.Printf("Failed to get token purchases: %v", err)
 		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1029,24 +1040,24 @@ func (handler *RequestHandler) GetMyTokenPurchases(w http.ResponseWriter, r *htt
 		purchases = []models.TokenPurchase{}
 	}
 
-	log.Printf("🔵 GetMyTokenPurchases: Returning %d purchases", len(purchases))
+	log.Printf("Debug GetMyTokenPurchases: Returning %d purchases", len(purchases))
 	render.JSON(w, r, purchases)
 }
 
 // GetMyPendingTransfers handles GET /users/me/pending-transfers
 // Returns all pending token transfers for properties owned by the authenticated user
 func (handler *RequestHandler) GetMyPendingTransfers(w http.ResponseWriter, r *http.Request) {
-	log.Printf("🔵 GetMyPendingTransfers: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
-	
+	log.Printf("GetMyPendingTransfers: Handler called - Method: %s, Path: %s", r.Method, r.URL.Path)
+
 	// Get authenticated user
 	claims, ok := r.Context().Value(auth.ClaimsKey).(*auth.Claims)
 	if !ok {
-		log.Printf("❌ GetMyPendingTransfers: Unauthorized - no claims in context")
+		log.Printf("GetMyPendingTransfers: Unauthorized - no claims in context")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
-	
-	log.Printf("🔵 GetMyPendingTransfers: User ID: %s", claims.UserID.String())
+
+	log.Printf("GetMyPendingTransfers: User ID: %s", claims.UserID.String())
 
 	// Get user to get wallet address
 	user, err := handler.db.GetUserById(claims.UserID.String())
@@ -1063,7 +1074,7 @@ func (handler *RequestHandler) GetMyPendingTransfers(w http.ResponseWriter, r *h
 	// Get all properties owned by this user
 	allProperties, err := handler.db.GetAllProperties()
 	if err != nil {
-		log.Printf("❌ Failed to get properties: %v", err)
+		log.Printf("Failed to get properties: %v", err)
 		http.Error(w, "Database Error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -1077,21 +1088,21 @@ func (handler *RequestHandler) GetMyPendingTransfers(w http.ResponseWriter, r *h
 		}
 	}
 
-	log.Printf("🔵 GetMyPendingTransfers: Found %d owned properties", len(ownedProperties))
-	
+	log.Printf("GetMyPendingTransfers: Found %d owned properties", len(ownedProperties))
+
 	// Get pending purchases for all owned properties
 	var allPendingTransfers []models.TokenPurchase
 	for _, prop := range ownedProperties {
 		pending, err := handler.db.GetPendingTokenPurchasesByProperty(prop.ID.String())
 		if err != nil {
-			log.Printf("⚠️ Failed to get pending purchases for property %s: %v", prop.ID, err)
+			log.Printf("Warning: Failed to get pending purchases for property %s: %v", prop.ID, err)
 			continue
 		}
-		log.Printf("🔵 GetMyPendingTransfers: Property %s has %d pending purchases", prop.ID, len(pending))
+		log.Printf("GetMyPendingTransfers: Property %s has %d pending purchases", prop.ID, len(pending))
 		allPendingTransfers = append(allPendingTransfers, pending...)
 	}
 
-	log.Printf("🔵 GetMyPendingTransfers: Returning %d total pending transfers", len(allPendingTransfers))
+	log.Printf("GetMyPendingTransfers: Returning %d total pending transfers", len(allPendingTransfers))
 	
 	// Always return an array, even if empty
 	if allPendingTransfers == nil {

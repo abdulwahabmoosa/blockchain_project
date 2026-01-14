@@ -28,7 +28,7 @@ func Upload(file io.Reader, filename string) (string, error) {
 
 	// Use the stable V1/V2 endpoint
 	url := "https://api.pinata.cloud/pinning/pinFileToIPFS"
-	log.Printf("🚀 Uploading %s to: %s", filename, url)
+	log.Printf("Info: Uploading %s to: %s", filename, url)
 
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -63,7 +63,7 @@ func Upload(file io.Reader, filename string) (string, error) {
 	req.Header.Set("Authorization", "Bearer "+jwt)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	// CRITICAL FIX: Disable Keep-Alives to prevent "unexpected EOF" on reused connections
+	// CRITICAL FIX: Disable Keep-Alives to prevent "unexpected EOF" on reused connetions
 	req.Close = true
 
 	// 5. Execute
@@ -71,7 +71,7 @@ func Upload(file io.Reader, filename string) (string, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		// Log the JWT length to debug if it's being cut off (Don't log the full key!)
-		log.Printf("❌ Network Error. JWT Length: %d", len(jwt))
+		log.Printf("Error: Network Error. JWT Length: %d", len(jwt))
 		return "", fmt.Errorf("network err: %v", err)
 	}
 	defer resp.Body.Close()
@@ -80,7 +80,7 @@ func Upload(file io.Reader, filename string) (string, error) {
 	respBody, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode != 200 {
-		log.Printf("🔴 Pinata Error Body: %s", string(respBody))
+		log.Printf("Error: Pinata Error Body: %s", string(respBody))
 		return "", fmt.Errorf("pinata API status %d", resp.StatusCode)
 	}
 
@@ -89,7 +89,7 @@ func Upload(file io.Reader, filename string) (string, error) {
 		return "", fmt.Errorf("json parse err: %v", err)
 	}
 
-	log.Printf("✅ Upload Success! CID: %s", pinataResp.IpfsHash)
+	log.Printf("Success: Upload Success! CID: %s", pinataResp.IpfsHash)
 	return pinataResp.IpfsHash, nil
 }
 

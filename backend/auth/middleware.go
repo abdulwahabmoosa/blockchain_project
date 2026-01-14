@@ -1,3 +1,4 @@
+// auth middleware - validates JWT tokens in requests
 package auth
 
 import (
@@ -9,6 +10,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Middleware - JWT authentication middleware
+// validates bearer token and adds claims to request context
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")

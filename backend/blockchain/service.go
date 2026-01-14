@@ -24,18 +24,22 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+// ChainService - main struct for blockchain operations
+// contains client connection and contract instances
 type ChainService struct {
 	Client     *ethclient.Client
 	PrivateKey *ecdsa.PrivateKey
 	ChainID    *big.Int
 
-	// Contract Instances
+	// Contract instance
 	Registry            *platform_registry.PlatformRegistry
 	PropertyFactory     *property_factory.PropertyFactory
 	Approval            *approval_service.ApprovalService
 	RevenueDistribution *revenue_distribution.RevenueDistribution
 }
 
+// NewChainServiceEnv - create service from environment variables
+// loads RPC URL, private key, registry address from env
 func NewChainServiceEnv() (*ChainService, error) {
 	rpcURL := os.Getenv("SEPOLIA_RPC")
 	if rpcURL == "" {
@@ -44,7 +48,7 @@ func NewChainServiceEnv() (*ChainService, error) {
 
 	privateKey := os.Getenv("PRIVATE_KEY_2")
 	if privateKey == "" {
-		log.Printf("⚠️ PRIVATE_KEY_2 not found, trying PRIVATE_KEY...")
+		log.Printf("Warning PRIVATE_KEY_2 not found, trying PRIVATE_KEY...")
 		privateKey = os.Getenv("PRIVATE_KEY")
 		if privateKey == "" {
 			return nil, errors.New("PRIVATE_KEY_2 or PRIVATE_KEY environment variable is required")
@@ -60,7 +64,7 @@ func NewChainServiceEnv() (*ChainService, error) {
 }
 
 func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService, error) {
-	log.Printf("🔗 Connecting to blockchain at: %s", rpcUrl)
+	log.Printf("Connecting to blockchain at: %s", rpcUrl)
 	client, err := ethclient.Dial(rpcUrl)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to blockchain: %v", err)
@@ -77,14 +81,14 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 		return nil, fmt.Errorf("failed to get network ID: %v", err)
 	}
 
-	log.Printf("✅ Connected to network: %s (Chain ID: %s)", rpcUrl, chainID.String())
-	log.Printf("📋 Using registry contract: %s", registryAddr)
+	log.Printf("Connected to network: %s (Chain ID: %s)", rpcUrl, chainID.String())
+	log.Printf("Using registry contract: %s", registryAddr)
 
 	registryAddress := common.HexToAddress(registryAddr)
 	registry, err := platform_registry.NewPlatformRegistry(registryAddress, client)
 	if err != nil {
-		log.Printf("⚠️ Failed to connect to registry contract at %s: %v", registryAddr, err)
-		log.Printf("⚠️ Blockchain service will work in limited mode - contracts not deployed yet")
+		log.Printf("Warning: Failed to connect to registry contract at %s: %v", registryAddr, err)
+		log.Printf("Warning: Blockchain service will work in limited mode - contracts not deployed yet")
 		return &ChainService{
 			Client:     client,
 			PrivateKey: privateKey,
@@ -95,7 +99,7 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 
 	factoryAddr, err := registry.GetPropertyFactory(nil)
 	if err != nil {
-		log.Printf("⚠️ Failed to get factory address from registry: %v", err)
+		log.Printf("Warning: Failed to get factory address from registry: %v", err)
 		return &ChainService{
 			Client:     client,
 			PrivateKey: privateKey,
@@ -106,7 +110,7 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	}
 	factory, err := property_factory.NewPropertyFactory(factoryAddr, client)
 	if err != nil {
-		log.Printf("⚠️ Failed to connect to factory contract: %v", err)
+		log.Printf("Warning: Failed to connect to factory contract: %v", err)
 		return &ChainService{
 			Client:     client,
 			PrivateKey: privateKey,
@@ -118,7 +122,7 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 
 	approvalAddr, err := registry.GetApprovalService(nil)
 	if err != nil {
-		log.Printf("⚠️ Failed to get approval service address from registry: %v", err)
+		log.Printf("Warning: Failed to get approval service address from registry: %v", err)
 		return &ChainService{
 			Client:          client,
 			PrivateKey:      privateKey,
@@ -130,7 +134,7 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	}
 	approval, err := approval_service.NewApprovalService(approvalAddr, client)
 	if err != nil {
-		log.Printf("⚠️ Failed to connect to approval service contract: %v", err)
+		log.Printf("Warning: Failed to connect to approval service contract: %v", err)
 		return &ChainService{
 			Client:          client,
 			PrivateKey:      privateKey,
@@ -143,7 +147,7 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 
 	revenueAddr, err := registry.GetRevenueDistribution(nil)
 	if err != nil {
-		log.Printf("⚠️ Failed to get revenue distribution address from registry: %v", err)
+		log.Printf("Warning: Failed to get revenue distribution address from registry: %v", err)
 		return &ChainService{
 			Client:          client,
 			PrivateKey:      privateKey,
@@ -156,7 +160,7 @@ func NewChainService(rpcUrl, privateKeyHex, registryAddr string) (*ChainService,
 	}
 	revenue, err := revenue_distribution.NewRevenueDistribution(revenueAddr, client)
 	if err != nil {
-		log.Printf("⚠️ Failed to connect to revenue distribution contract: %v", err)
+		log.Printf("Warning: Failed to connect to revenue distribution contract: %v", err)
 		return &ChainService{
 			Client:          client,
 			PrivateKey:      privateKey,
@@ -184,7 +188,7 @@ func (s *ChainService) GetTransactor() (*bind.TransactOpts, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("🔑 Backend using signer address: %s", auth.From.Hex())
+	log.Printf("Backend using signer address: %s", auth.From.Hex())
 	return auth, nil
 }
 
@@ -213,10 +217,11 @@ type PropertyCreationResult struct {
 	PropertyName string
 }
 
-// CreateProperty deploys a new property via the Factory and waits for confirmation
+// CreateProperty - deploy new property contracts on blockchain
+// creates PropertyAsset (NFT) and PropertyToken (ERC20), links them
 func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, valuation, supply int64) (*PropertyCreationResult, error) {
 	if s.PropertyFactory == nil {
-		log.Printf("⚠️ Property factory contract not available - blockchain service in limited mode")
+		log.Printf("Warning: Property factory contract not available - blockchain service in limited mode")
 		return nil, fmt.Errorf("property factory contract not deployed - deploy contracts to enable property creation")
 	}
 
@@ -239,7 +244,7 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 	supplyBig := big.NewInt(supply)
 	supplyBig.Mul(supplyBig, weiMultiplier)
 
-	log.Printf("🔄 Submitting property creation transaction to blockchain...")
+	log.Printf("Submitting property creation transaction to blockchain...")
 
 	// Submit transaction
 	tx, err := s.PropertyFactory.CreateProperty(auth, owner, name, symbol, dataHash, valBig, supplyBig, name+" Token", "TKN")
@@ -247,8 +252,8 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 		return nil, fmt.Errorf("failed to submit transaction: %v", err)
 	}
 
-	log.Printf("✅ Transaction submitted: %s", tx.Hash().Hex())
-	log.Printf("⏳ Waiting for transaction to be mined...")
+	log.Printf("Transaction submitted: %s", tx.Hash().Hex())
+	log.Printf("Waiting for transaction to be mined...")
 
 	// Wait for transaction to be mined
 	receipt, err := s.WaitForTx(tx.Hash())
@@ -261,7 +266,7 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 		return nil, fmt.Errorf("transaction failed on-chain with status: %d", receipt.Status)
 	}
 
-	log.Printf("✅ Transaction mined successfully in block: %d", receipt.BlockNumber)
+	log.Printf("Transaction mined successfully in block: %d", receipt.BlockNumber)
 
 	// Parse PropertyRegistered event from logs
 	for _, vLog := range receipt.Logs {
@@ -270,7 +275,7 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 			continue // Not the event we're looking for
 		}
 
-		log.Printf("✅ PropertyRegistered event found:")
+		log.Printf("PropertyRegistered event found:")
 		log.Printf("   Owner: %s", event.Owner.Hex())
 		log.Printf("   Asset Address: %s", event.PropertyAsset.Hex())
 		log.Printf("   Token Address: %s", event.PropertyToken.Hex())
@@ -290,7 +295,7 @@ func (s *ChainService) CreateProperty(ownerStr, name, symbol, dataHash string, v
 // DistributeRevenue deposits funds into the Revenue contract
 func (s *ChainService) DistributeRevenue(tokenAddrStr, stablecoinAddrStr string, amount int64) (*types.Transaction, error) {
 	if s.RevenueDistribution == nil {
-		log.Printf("⚠️ Revenue distribution contract not available - blockchain service in limited mode")
+		log.Printf("Warning: Revenue distribution contract not available - blockchain service in limited mode")
 		return nil, fmt.Errorf("revenue distribution contract not deployed - deploy contracts to enable revenue distribution")
 	}
 
@@ -306,14 +311,14 @@ func (s *ChainService) DistributeRevenue(tokenAddrStr, stablecoinAddrStr string,
 	// Get RevenueDistribution contract address
 	revenueDistributionAddr, err := s.Registry.GetRevenueDistribution(nil)
 	if err != nil {
-		log.Printf("⚠️ Failed to get RevenueDistribution address from registry: %v", err)
+		log.Printf("Warning: Failed to get RevenueDistribution address from registry: %v", err)
 		// Continue anyway - might work if role is already granted
 	} else {
 		// Check if RevenueDistribution has SNAPSHOT_ROLE on the PropertyToken
 		// If not, grant it automatically
 		err = s.ensureSnapshotRole(tokenAddr, revenueDistributionAddr, auth)
 		if err != nil {
-			log.Printf("⚠️ Failed to ensure SNAPSHOT_ROLE (will try distribution anyway): %v", err)
+			log.Printf("Warning: Failed to ensure SNAPSHOT_ROLE (will try distribution anyway): %v", err)
 			// Continue anyway - the error might be that role is already granted
 		}
 	}
@@ -342,13 +347,13 @@ func (s *ChainService) ensureSnapshotRole(tokenAddr, revenueDistributionAddr com
 	}
 
 	if hasRole {
-		log.Printf("✅ RevenueDistribution already has SNAPSHOT_ROLE on token %s", tokenAddr.Hex())
+		log.Printf("RevenueDistribution already has SNAPSHOT_ROLE on token %s", tokenAddr.Hex())
 		return nil
 	}
 
-	log.Printf("🔧 RevenueDistribution does not have SNAPSHOT_ROLE on token %s, attempting to grant...", tokenAddr.Hex())
+	log.Printf("Info: RevenueDistribution does not have SNAPSHOT_ROLE on token %s, attempting to grant...", tokenAddr.Hex())
 
-	// PropertyFactory is the admin of PropertyTokens it creates
+	// PropertyFactory is the admin of PropertyTokens it creats
 	// We need to use PropertyFactory's grantSnapshotRoleToRevenue function
 	// Since it's not in bindings, we'll use PropertyFactory's GrantRole on the PropertyToken
 	// But first, let's try calling PropertyFactory's grantSnapshotRoleToRevenue via raw transaction
@@ -372,7 +377,7 @@ func (s *ChainService) ensureSnapshotRole(tokenAddr, revenueDistributionAddr com
 	if err != nil {
 		// Direct grant failed - PropertyFactory is likely the admin
 		// Use PropertyFactory's grantSnapshotRoleToRevenue function via raw transaction
-		log.Printf("⚠️ Direct grant failed (PropertyFactory is admin). Using PropertyFactory.grantSnapshotRoleToRevenue...")
+		log.Printf("Warning: Direct grant failed (PropertyFactory is admin). Using PropertyFactory.grantSnapshotRoleToRevenue...")
 		
 		if s.PropertyFactory == nil {
 			return fmt.Errorf("PropertyFactory not available to grant role")
@@ -384,11 +389,11 @@ func (s *ChainService) ensureSnapshotRole(tokenAddr, revenueDistributionAddr com
 		rawFactory := &property_factory.PropertyFactoryRaw{Contract: s.PropertyFactory}
 		tx, err = rawFactory.Transact(auth, "grantSnapshotRoleToRevenue", tokenAddr)
 		if err != nil {
-			log.Printf("❌ Failed to call PropertyFactory.grantSnapshotRoleToRevenue: %v", err)
+			log.Printf("Failed to call PropertyFactory.grantSnapshotRoleToRevenue: %v", err)
 			return fmt.Errorf("failed to grant SNAPSHOT_ROLE via PropertyFactory: %v", err)
 		}
 		
-		log.Printf("✅ PropertyFactory.grantSnapshotRoleToRevenue transaction sent, waiting for confirmation...")
+		log.Printf("PropertyFactory.grantSnapshotRoleToRevenue transaction sent, waiting for confirmation...")
 		receipt, err := s.WaitForTx(tx.Hash())
 		if err != nil {
 			return fmt.Errorf("failed to wait for grant role transaction: %v", err)
@@ -398,11 +403,11 @@ func (s *ChainService) ensureSnapshotRole(tokenAddr, revenueDistributionAddr com
 			return fmt.Errorf("grant role transaction failed")
 		}
 		
-		log.Printf("✅ SNAPSHOT_ROLE successfully granted to RevenueDistribution via PropertyFactory")
+		log.Printf("SNAPSHOT_ROLE successfully granted to RevenueDistribution via PropertyFactory")
 		return nil
 	}
 	
-	log.Printf("✅ SNAPSHOT_ROLE grant transaction sent, waiting for confirmation...")
+	log.Printf("SNAPSHOT_ROLE grant transaction sent, waiting for confirmation...")
 	receipt, err := s.WaitForTx(tx.Hash())
 	if err != nil {
 		return fmt.Errorf("failed to wait for grant role transaction: %v", err)
@@ -412,54 +417,54 @@ func (s *ChainService) ensureSnapshotRole(tokenAddr, revenueDistributionAddr com
 		return fmt.Errorf("grant role transaction failed")
 	}
 	
-	log.Printf("✅ SNAPSHOT_ROLE successfully granted to RevenueDistribution on token %s", tokenAddr.Hex())
+	log.Printf("SNAPSHOT_ROLE successfully granted to RevenueDistribution on token %s", tokenAddr.Hex())
 	return nil
 }
 
 // ApproveUser allows a specific wallet address to participate in the platform
 func (s *ChainService) ApproveUser(userAddressStr string) (*types.Transaction, error) {
-	log.Printf("🔄 Starting approval for address: %s", userAddressStr)
+	log.Printf("Starting approval for address: %s", userAddressStr)
 
 	if s.Approval == nil {
-		log.Printf("⚠️ Approval contract not available - blockchain service in limited mode")
+		log.Printf("Warning: Approval contract not available - blockchain service in limited mode")
 		return nil, fmt.Errorf("approval contract not deployed - deploy contracts to enable blockchain functionality")
 	}
 
 	auth, err := s.GetTransactor()
 	if err != nil {
-		log.Printf("❌ Failed to get transactor: %v", err)
+		log.Printf("Failed to get transactor: %v", err)
 		return nil, fmt.Errorf("failed to get transactor: %v", err)
 	}
 
 	userAddr := common.HexToAddress(userAddressStr)
-	log.Printf("🔗 Calling smart contract Approve() for address: %s", userAddressStr)
-	log.Printf("🔑 Backend signer address: %s", auth.From.Hex())
+	log.Printf("Debug: Calling smart contract Approve() for address: %s", userAddressStr)
+	log.Printf("Backend signer address: %s", auth.From.Hex())
 
 	tx, err := s.Approval.Approve(auth, userAddr)
 	if err != nil {
-		log.Printf("❌ Smart contract Approve() failed for %s: %v", userAddressStr, err)
-		log.Printf("🔍 Auth signer address: %s", auth.From.Hex())
+		log.Printf("Smart contract Approve() failed for %s: %v", userAddressStr, err)
+		log.Printf("Debug: Auth signer address: %s", auth.From.Hex())
 		return nil, fmt.Errorf("smart contract approve failed: %v", err)
 	}
 
-	log.Printf("✅ Smart contract approve() transaction sent, hash: %s", tx.Hash().Hex())
-	log.Printf("⏳ Waiting for transaction confirmation...")
+	log.Printf("Smart contract approve() transaction sent, hash: %s", tx.Hash().Hex())
+	log.Printf("Waiting for transaction confirmation...")
 
 	// Wait for transaction to be mined
 	receipt, err := s.WaitForTx(tx.Hash())
 	if err != nil {
-		log.Printf("⚠️ Transaction confirmation failed: %v", err)
+		log.Printf("Warning: Transaction confirmation failed: %v", err)
 		return tx, fmt.Errorf("transaction confirmation failed: %v", err)
 	}
 
-	log.Printf("✅ Transaction mined in block: %d", receipt.BlockNumber)
+	log.Printf("Transaction mined in block: %d", receipt.BlockNumber)
 	return tx, nil
 }
 
 // IsApproved checks if a user address is approved
 func (s *ChainService) IsApproved(userAddressStr string) (bool, error) {
 	if s.Approval == nil {
-		log.Printf("⚠️ Approval contract not available - returning false for approval check")
+		log.Printf("Warning: Approval contract not available - returning false for approval check")
 		return false, nil // Return false if contract not available
 	}
 

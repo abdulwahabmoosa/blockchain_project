@@ -54,7 +54,7 @@ function DashboardPage() {
 
   // Debug wallet state
   useEffect(() => {
-    console.log("🔗 Wallet state:", {
+    console.log("Wallet state:", {
       isConnected,
       address: address?.substring(0, 10) + "...",
       hasProvider: !!provider,
@@ -83,24 +83,24 @@ function DashboardPage() {
       if (user && user.WalletAddress && !autoConnectAttempted) {
         setAutoConnectAttempted(true);
 
-        console.log('🔍 Auto-connect check:', { user: user?.Email, walletAddress: user?.WalletAddress, currentAddress: address, isConnected });
+        console.log('Auto-connect check:', { user: user?.Email, walletAddress: user?.WalletAddress, currentAddress: address, isConnected });
 
         // Check if we're already connected to the correct wallet
         const isCorrectWallet = address && address.toLowerCase() === user.WalletAddress.toLowerCase();
 
-        console.log('🔗 Wallet match check:', { isCorrectWallet, expected: user.WalletAddress, current: address });
+        console.log('Wallet match check:', { isCorrectWallet, expected: user.WalletAddress, current: address });
 
         if (!isCorrectWallet) {
-          console.log('🔗 Auto-connecting registered wallet for user:', user.Email);
+          console.log('Auto-connecting registered wallet for user:', user.Email);
           try {
             await connectRegisteredWallet(user.WalletAddress);
-            console.log('✅ Auto-connection successful');
+            console.log('Auto-connection successful');
           } catch (err) {
-            console.error('❌ Auto-connect failed:', err);
+            console.error('Auto-connect failed:', err);
             // Don't retry, just log the error
           }
         } else {
-          console.log('✅ Already connected to correct wallet');
+          console.log('Already connected to correct wallet');
         }
       } else {
         console.log('⏭️ Skipping auto-connect: no user or wallet address');
@@ -113,18 +113,18 @@ function DashboardPage() {
   useEffect(() => {
     const fetchProperties = async () => {
       try {
-        console.log("🔍 Fetching properties from API...");
+        console.log("Fetching properties from API...");
         const data = await api.getProperties();
-        console.log("📊 Properties received:", data.length, data);
+        console.log("Properties received:", data.length, data);
         const propertiesWithLoading = data.map((p) => ({
           ...p,
           balanceLoading: true,
           tokenBalance: undefined,
         }));
         setProperties(propertiesWithLoading);
-        console.log("✅ Properties loaded:", propertiesWithLoading.length);
+        console.log("Properties loaded:", propertiesWithLoading.length);
       } catch (err: any) {
-        console.error("❌ Failed to fetch properties:", err);
+        console.error("Failed to fetch properties:", err);
         setError("Failed to load properties");
       } finally {
         setLoading(false);
@@ -175,40 +175,40 @@ function DashboardPage() {
       // Skip if already loading or if balances are already loaded
       const needsLoading = properties.some((p) => p.balanceLoading === true);
       if (!needsLoading) {
-        console.log("⏭️ Skipping balance fetch - all balances already loaded");
+        console.log("Skipping balance fetch - all balances already loaded");
         return;
       }
 
-      console.log("🔄 Fetching token balances for", properties.length, "properties");
-      console.log("👤 User address:", address);
+      console.log("Fetching token balances for", properties.length, "properties");
+      console.log("User address:", address);
       setTotalBalanceLoading(true);
       let total = 0n;
 
       // Fetch balance for each property
       const updatedProperties = await Promise.all(
         properties.map(async (property) => {
-          console.log(`🔍 Checking balance for property ${property.ID} (${property.OnchainTokenAddress})`);
+          console.log(`Checking balance for property ${property.ID} (${property.OnchainTokenAddress})`);
 
           // If already loaded, reuse the value
           if (property.tokenBalance !== undefined && !property.balanceLoading) {
             try {
               const balance = parseFloat(property.tokenBalance.replace(/[^\d.]/g, "")) * 10**18;
               total += BigInt(Math.floor(balance));
-              console.log(`✅ Reusing existing balance for ${property.ID}: ${property.tokenBalance}`);
+              console.log(`Reusing existing balance for ${property.ID}: ${property.tokenBalance}`);
             } catch {
-              console.log(`⚠️ Failed to parse existing balance for ${property.ID}`);
+              console.log(`Warning: Failed to parse existing balance for ${property.ID}`);
             }
             return property;
           }
 
           try {
-            console.log(`📡 Calling getTokenBalance for ${property.ID}...`);
+            console.log(`Calling getTokenBalance for ${property.ID}...`);
             const balance = await getTokenBalance(
               property.OnchainTokenAddress,
               address,
               provider
             );
-            console.log(`✅ Balance for ${property.ID}:`, balance.toString(), "wei");
+            console.log(`Balance for ${property.ID}:`, balance.toString(), "wei");
             total += balance;
 
             return {
@@ -217,7 +217,7 @@ function DashboardPage() {
               balanceLoading: false,
             };
           } catch (err) {
-            console.error(`❌ Failed to fetch balance for property ${property.ID}:`, err);
+            console.error(`Failed to fetch balance for property ${property.ID}:`, err);
             return {
               ...property,
               tokenBalance: "0",
@@ -227,11 +227,11 @@ function DashboardPage() {
         })
       );
 
-      console.log("🎯 Total balance calculated:", total.toString(), "wei");
+      console.log("Total balance calculated:", total.toString(), "wei");
       setProperties(updatedProperties);
       setTotalBalance(formatTokenBalance(total));
       setTotalBalanceLoading(false);
-      console.log("✅ Balance fetching completed");
+      console.log("Balance fetching completed");
     };
 
     fetchBalances();
@@ -265,12 +265,12 @@ function DashboardPage() {
                 <h3 className="text-lg font-semibold">Investment Status</h3>
                 <p className="text-sm text-gray-400">
                   {isCheckingApproval
-                    ? "⏳ Checking approval status... (may take 10-15 seconds on slow networks)"
+                    ? "Checking approval status... (may take 10-15 seconds on slow networks)"
                     : isApproved === null
-                    ? "⚠️ Unable to check approval status. You can still browse properties."
+                    ? "Warning: Unable to check approval status. You can still browse properties."
                     : isApproved
-                    ? "✅ You are approved to invest in properties and receive tokens"
-                    : "❌ You need approval to invest. Contact an administrator."}
+                    ? "You are approved to invest in properties and receive tokens"
+                    : "You need approval to invest. Contact an administrator."}
                 </p>
                 {isCheckingApproval && (
                   <p className="text-xs text-yellow-400">
@@ -301,7 +301,7 @@ function DashboardPage() {
                     className="border-blue-500/50 bg-blue-500/10 text-blue-400 hover:bg-blue-500/20"
                     disabled={isCheckingApproval}
                   >
-                    {isCheckingApproval ? "⏳ Checking..." : "🔄 Refresh"}
+                    {isCheckingApproval ? "Checking..." : "Refresh"}
                   </Button>
                 )}
                 {isApproved === false && (

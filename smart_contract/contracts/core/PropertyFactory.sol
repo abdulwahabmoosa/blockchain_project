@@ -1,14 +1,14 @@
 /*
-The PropertyFactory is responsible for creating a complete tokenized property on the blockchain. 
-When the admin (who has the CREATOR_ROLE) calls createProperty, 
-the factory automatically generates two linked smart contracts: 
-a PropertyAsset (ERC-721 NFT representing the property itself) 
-and a PropertyToken (ERC-20 token representing the fractional ownership shares). 
-It gives the property a unique ID, stores the metadata hash, and sets the property’s 
-valuation. It then deploys the ERC20 token using the approval service from the registry, 
+The PropertyFactory is responsible for creating a complete tokenized property on the blockchain.
+When the admin (who has the CREATOR_ROLE) calls createProperty,
+the factory automatically generates two linked smart contracts:
+a PropertyAsset (ERC-721 NFT representing the property itself)
+and a PropertyToken (ERC-20 token representing the fractional ownership shares).
+It gives the property a unique ID, stores the metadata hash, and sets the property's
+valuation. It then deploys the ERC20 token using the approval service from the registry,
 links the token back to the asset, and finally mints all fractional tokens to the property owner.
- In short, this contract is the “machine” that assembles a fully functional tokenized property — creating the deed, 
- creating the shares, connecting them together, and registering the new property in one transaction.
+ In short, this contract is the "machine" that assembles a fully functional tokenized property — creating the deed,
+ creating the shares, connecting them together, and registering the new property in one transactionn.
 
 */
 
@@ -22,11 +22,16 @@ import "../assets/PropertyAsset.sol";
 import "../assets/PropertyToken.sol";
 import "./PlatformRegistry.sol";
 
+// PropertyFactory - creates tokenized properties on blockchain
 contract PropertyFactory is AccessControl {
+    // role for creating properties
     bytes32 public constant CREATOR_ROLE = keccak256("CREATOR_ROLE");
+    // reference to platform registry for contract addresses
     PlatformRegistry public registry;
+    // counter for unique asset IDs
     uint256 private _nextAssetId;
 
+    // event when property is created
     event PropertyRegistered(
         address indexed owner,
         address propertyAsset,
@@ -35,12 +40,15 @@ contract PropertyFactory is AccessControl {
         uint256 valuation
     );
 
+    // constructor - setup roles and registry
     constructor(address registryAddr, address admin) {
         registry = PlatformRegistry(registryAddr);
         _setupRole(DEFAULT_ADMIN_ROLE, admin);
         _setupRole(CREATOR_ROLE, admin);
     }
 
+    // createProperty - main function to create tokenized property
+    // deploys asset contract, token contract, links them, mints tokens
     function createProperty(
         address owner,
         string memory assetName,

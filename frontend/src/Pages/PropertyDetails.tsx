@@ -148,7 +148,7 @@ export default function PropertyDetailsPage() {
     }
 
     try {
-      console.log("🔄 Refreshing token availability data...");
+      console.log("Refreshing token availability data...");
       
       // Fetch token stats from API (accurate sold/available counts from database)
       try {
@@ -387,7 +387,7 @@ export default function PropertyDetailsPage() {
       });
 
       console.log(`📤 Transaction sent: ${tx.hash}`);
-      console.log(`⏳ Waiting for transaction confirmation...`);
+      console.log(`Waiting for transaction confirmation...`);
 
       // Wait for transaction to be confirmed
       const receipt = await tx.wait();
@@ -409,7 +409,7 @@ export default function PropertyDetailsPage() {
       }
       
       // Show success message to buyer
-      alert(`✅ Payment successful! ${ethers.formatEther(totalPriceSepoliaETH)} SepoliaETH has been sent to the property owner.\n\nTransaction Hash: ${tx.hash}\n\n⏳ Waiting for owner approval...\n\nThe property owner will receive a notification to approve the token transfer. Once approved, ${buyTokenAmount} tokens will be transferred to your wallet.\n\nYour wallet address: ${address}`);
+      alert(`Payment successful! ${ethers.formatEther(totalPriceSepoliaETH)} SepoliaETH has been sent to the property owner.\n\nTransaction Hash: ${tx.hash}\n\nWaiting for owner approval...\n\nThe property owner will receive a notification to approve the token transfer. Once approved, ${buyTokenAmount} tokens will be transferred to your wallet.\n\nYour wallet address: ${address}`);
       
       // Clear form
       setBuyTokenAmount("");
@@ -471,7 +471,7 @@ export default function PropertyDetailsPage() {
       );
 
       console.log(`📤 Token transfer transaction sent: ${transferTx.hash}`);
-      console.log(`⏳ Waiting for confirmation...`);
+      console.log(`Waiting for confirmation...`);
 
       // Wait for confirmation
       const receipt = await transferTx.wait();
@@ -625,7 +625,7 @@ export default function PropertyDetailsPage() {
         {isOwner && pendingTransfers.length > 0 && (
           <section className="bg-yellow-900/20 border border-yellow-600/50 rounded-lg p-6 space-y-4">
             <div className="flex items-center gap-2">
-              <span className="text-yellow-400 font-semibold text-lg">⚠️ Pending Token Transfers</span>
+              <span className="text-yellow-400 font-semibold text-lg">Pending Token Transfers</span>
               <span className="bg-yellow-600 text-black px-2 py-1 rounded text-sm font-bold">
                 {pendingTransfers.length}
               </span>
@@ -962,7 +962,7 @@ export default function PropertyDetailsPage() {
                         </div>
                       )}
                       <p className="text-xs text-yellow-400">
-                        ⚠️ Note: After payment is sent, the property owner will need to transfer the tokens to your address ({address?.substring(0, 6)}...{address?.substring(38)}).
+                        Note: After payment is sent, the property owner will need to transfer the tokens to your address ({address?.substring(0, 6)}...{address?.substring(38)}).
                       </p>
                     </div>
                   </div>

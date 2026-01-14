@@ -3,9 +3,9 @@ import contractAddresses from "../deployments/sepolia/contract-addresses.json";
 
 /**
  * Wallet Connection Utility
- * 
+ *
  * This module provides functions to connect to MetaMask and interact with the blockchain.
- * It follows the architecture described in README.md where the frontend connects directly
+ * It follows the architecture described in README.md where the frontend connects directlyy
  * to the blockchain using ethers.js, rather than going through the backend.
  */
 
@@ -74,13 +74,13 @@ export const connectToSpecificWallet = async (targetAddress: string): Promise<{
   const provider = new ethers.BrowserProvider(window.ethereum!);
 
   // Request account access to get all accounts
-  console.log('🔓 Requesting account access...');
+  console.log('Debug: Requesting account access...');
   await provider.send("eth_requestAccounts", []);
 
   // Get all accounts from MetaMask
-  console.log('👤 Getting all MetaMask accounts...');
+  console.log('Getting all MetaMask accounts...');
   const accounts = await provider.listAccounts();
-  console.log(`📋 Found ${accounts.length} account(s) in MetaMask`);
+  console.log(`Info: Found ${accounts.length} account(s) in MetaMask`);
 
   // Check if target address exists in MetaMask accounts
   const accountAddresses = accounts.map(acc => acc.address.toLowerCase());
@@ -89,7 +89,7 @@ export const connectToSpecificWallet = async (targetAddress: string): Promise<{
   if (!targetAccountExists) {
     // Target account not found in MetaMask
     const errorMessage = `The wallet address ${targetAddress} is not found in your MetaMask accounts. Please add or import this account in MetaMask first, then refresh the page.`;
-    console.error(`❌ ${errorMessage}`);
+    console.error(`Error: ${errorMessage}`);
     throw new Error(errorMessage);
   }
 
@@ -100,13 +100,13 @@ export const connectToSpecificWallet = async (targetAddress: string): Promise<{
     // The account exists but is not currently selected
     // MetaMask doesn't allow programmatic account switching, so we need to ask the user
     const errorMessage = `The wallet ${targetAddress} exists in MetaMask but is not currently selected. Please switch to this account in MetaMask (the account icon in the top right), then refresh the page.`;
-    console.warn(`⚠️ ${errorMessage}`);
+    console.warn(`${errorMessage}`);
     throw new Error(errorMessage);
   }
 
   // Target account is selected - get signer
-  console.log(`✅ Target wallet is selected in MetaMask`);
-  console.log(`🔗 Connecting to wallet: ${targetAddress}`);
+  console.log(`Success: Target wallet is selected in MetaMask`);
+  console.log(`Debug: Connecting to wallet: ${targetAddress}`);
   
   const signer = await provider.getSigner();
   const connectedAddress = await signer.getAddress();
@@ -114,16 +114,16 @@ export const connectToSpecificWallet = async (targetAddress: string): Promise<{
   // Verify the connected address matches (double check)
   if (connectedAddress.toLowerCase() !== normalizedTarget) {
     const errorMessage = `Unexpected error: Connected address (${connectedAddress}) doesn't match target (${targetAddress}). Please try again.`;
-    console.error(`❌ ${errorMessage}`);
+    console.error(`Error: ${errorMessage}`);
     throw new Error(errorMessage);
   }
 
   // Get the chain ID to verify we're on the correct network
-  console.log('🌐 Getting network...');
+  console.log('Debug: Getting network...');
   const network = await provider.getNetwork();
   const chainId = Number(network.chainId);
 
-  console.log(`✅ Successfully connected to wallet: ${connectedAddress}`);
+  console.log(`Success: Successfully connected to wallet: ${connectedAddress}`);
 
   return {
     address: connectedAddress,
@@ -160,37 +160,37 @@ export const connectWallet = async (forceSelection: boolean = false): Promise<{
   const provider = new ethers.BrowserProvider(window.ethereum!);
 
   if (forceSelection) {
-    console.log('🔄 Forcing wallet account selection...');
+    console.log('Forcing wallet account selection...');
     // Try to revoke permissions first to force account selection
     try {
       await window.ethereum!.request({
         method: 'wallet_revokePermissions',
         params: [{ eth_accounts: {} }]
       });
-      console.log('✅ Wallet permissions revoked, forcing account selection');
+      console.log('Success: Wallet permissions revoked, forcing account selection');
     } catch (err) {
       // wallet_revokePermissions might not be supported, continue normally
-      console.log('⚠️ Could not revoke permissions, proceeding with normal connection');
+      console.log('Warning: Could not revoke permissions, proceeding with normal connection');
     }
   }
 
   // Request account access from the user
   // This will trigger MetaMask to pop up asking for permission
   // The user must approve this request
-  console.log('🔓 Requesting account access...');
+  console.log('Debug: Requesting account access...');
   await provider.send("eth_requestAccounts", []);
 
   // Get the signer (the account that will sign transactions)
   // The signer is connected to the first account returned by MetaMask
-  console.log('✍️ Getting signer...');
+  console.log('Debug: Getting signer...');
   const signer = await provider.getSigner();
 
   // Get the connected wallet address
-  console.log('🏠 Getting address...');
+  console.log('Debug: Getting address...');
   const address = await signer.getAddress();
 
   // Get the chain ID to verify we're on the correct network
-  console.log('🌐 Getting network...');
+  console.log('Debug: Getting network...');
   const network = await provider.getNetwork();
   const chainId = Number(network.chainId);
 
@@ -218,35 +218,35 @@ export const getWalletState = async (): Promise<{
   chainId: number;
 } | null> => {
   if (!isMetaMaskInstalled()) {
-    console.log('❌ MetaMask not installed');
+    console.log('Error: MetaMask not installed');
     return null;
   }
 
   try {
-    console.log('🔗 Creating provider...');
+    console.log('Debug: Creating provider...');
     const provider = new ethers.BrowserProvider(window.ethereum!);
 
-    console.log('👤 Getting accounts...');
+    console.log('Getting accounts...');
     // Get accounts without requesting (will return empty if not connected)
     const accounts = await provider.listAccounts();
-    console.log('📋 Accounts found:', accounts.length);
+    console.log('Info: Accounts found:', accounts.length);
 
     if (accounts.length === 0) {
-      console.log('❌ No accounts connected');
+      console.log('Error: No accounts connected');
       return null; // No accounts connected
     }
 
-    console.log('✍️ Getting signer...');
+    console.log('Debug: Getting signer...');
     const signer = await provider.getSigner();
 
-    console.log('🏠 Getting address...');
+    console.log('Debug: Getting address...');
     const address = await signer.getAddress();
 
-    console.log('🌐 Getting network...');
+    console.log('Debug: Getting network...');
     const network = await provider.getNetwork();
     const chainId = Number(network.chainId);
 
-    console.log('✅ Wallet state retrieved:', { address, chainId });
+    console.log('Success: Wallet state retrieved:', { address, chainId });
 
     return {
       address,
@@ -255,7 +255,7 @@ export const getWalletState = async (): Promise<{
       chainId,
     };
   } catch (error) {
-    console.error("❌ Error getting wallet state:", error);
+    console.error("Error: Error getting wallet state:", error);
     return null;
   }
 };
@@ -362,7 +362,7 @@ export const createAdminWalletConnection = async () => {
     const adminPrivateKey = '0x65f24585f0bafc504a5d88a5cc4b7eb8b10ff71aab7f36284f16161414c15b6b';
     const adminWallet = new ethers.Wallet(adminPrivateKey, provider);
 
-    console.log(`🔑 Admin wallet connected (Sepolia):`, adminWallet.address);
+    console.log(`Info: Admin wallet connected (Sepolia):`, adminWallet.address);
 
     return {
       address: adminWallet.address,
@@ -371,7 +371,7 @@ export const createAdminWalletConnection = async () => {
       chainId: 11155111, // Sepolia
     };
   } catch (error) {
-    console.error('❌ Failed to create admin wallet connection:', error);
+    console.error('Error: Failed to create admin wallet connection:', error);
     throw error;
   }
 };
@@ -385,7 +385,7 @@ export const getAdminWalletState = async () => {
 
 export const getContractAddresses = () => {
   // Always use Sepolia contract addresses - contracts are deployed on Sepolia
-  console.log('🌐 Using Sepolia contract addresses');
+  console.log('Debug: Using Sepolia contract addresses');
   return contractAddresses;
 };
 

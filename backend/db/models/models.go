@@ -1,3 +1,4 @@
+// models package - database table definitions and types
 package models
 
 import (
@@ -6,23 +7,24 @@ import (
 	"github.com/google/uuid"
 )
 
-// UserRole represents the possible roles for a user.
+// UserRole - enum for user roles in system
 type UserRole string
 
 const (
-	RoleAdmin UserRole = "admin"
-	RoleUser  UserRole = "user"
+	RoleAdmin UserRole = "admin" // admin role
+	RoleUser  UserRole = "user"  // regular user role
 )
 
-// ApprovalStatus represents the approval status for users and properties.
+// ApprovalStatus - approval states for users and properties
 type ApprovalStatus string
 
 const (
-	ApprovalPending  ApprovalStatus = "pending"
-	ApprovalApproved ApprovalStatus = "approved"
-	ApprovalRejected ApprovalStatus = "rejected"
+	ApprovalPending  ApprovalStatus = "pending"  // waiting for approval
+	ApprovalApproved ApprovalStatus = "approved" // approved for access
+	ApprovalRejected ApprovalStatus = "rejected" // rejected access
 )
 
+// User - main user table structure
 type User struct {
 	ID             uuid.UUID      `json:"ID" gorm:"type:uuid;primaryKey"`
 	WalletAddress  string         `json:"WalletAddress" gorm:"type:varchar(100);unique;not null;index"`
@@ -35,16 +37,17 @@ type User struct {
 	UpdatedAt      time.Time      `json:"UpdatedAt"`
 }
 
-// PropertyStatus represents the status ENUM for a property.
+// PropertyStatus - property lifecycle states
 type PropertyStatus string
 
 const (
-	StatusActive   PropertyStatus = "Active"
-	StatusPaused   PropertyStatus = "Paused"
-	StatusDisputed PropertyStatus = "Disputed"
-	StatusClosed   PropertyStatus = "Closed"
+	StatusActive   PropertyStatus = "Active"   // property is active and tradable
+	StatusPaused   PropertyStatus = "Paused"   // temporarily paused
+	StatusDisputed PropertyStatus = "Disputed" // under dispute
+	StatusClosed   PropertyStatus = "Closed"   // closed/deactivated
 )
 
+// Property - main property table structure
 type Property struct {
 	ID                  uuid.UUID      `gorm:"type:uuid;primaryKey"`                  // Maps to id (UUID/INT)
 	Name                string         `gorm:"type:varchar(255)"`                      // Property name

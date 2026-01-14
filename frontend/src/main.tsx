@@ -1,3 +1,4 @@
+// main.tsx - React app entry point, setup routing and providers
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
@@ -76,7 +77,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="wallet" element={<WalletStatus />} />
           </Route>
 
-          {/* Existing routes kept for compatibility */}
+          {/* Existing routes kept for compatiblity */}
           <Route
             path="/dashboard-legacy"
             element={
